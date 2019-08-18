@@ -324,17 +324,17 @@ _zcomp() {
         if $_zc_redraw
         then
             # save starting cursor position
-            $_zc_first && printf $'\e7'
+            $_zc_first && printf '\e7'
 
             for (( _zcj = 0 ; _zcj < _zc_num_rows ; _zcj++ )) do
-                printf $'\r\n\e[K'
+                printf '\r\n\e[K'
                 for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zc_num_items && _zcl < (_zc_num_dcols+_zc_col_offset)*_zc_num_rows ; _zcl += _zc_num_rows )) do
                     printf " %s%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s%s " "$__zc_cNormal" "${COMPREPLY[_zcl]}" "$__zc_cEnd"
                 done
             done
 
             for ((; _zcj < _zc_prev_num_rows ; _zcj++ )) do
-                printf $'\r\n\e[K'
+                printf '\r\n\e[K'
             done
             # this can't happen "first time" (because _zc_prev_num_rows is -1)
             if (( _zc_prev_num_rows > _zc_num_rows ))
@@ -346,9 +346,9 @@ _zcomp() {
                 # Ask Xterm to report current cursor position; this will cause a
                 # "current position" «CSI?row;colR» response that will be read in the
                 # main loop
-                printf $'\e[?6n'
+                printf '\e[?6n'
                 # Turn on mouse tracking
-                printf $'\e[?1003h'
+                printf '\e[?1003h'
             }
 
             # re-save cursor position after any scrolling
@@ -453,15 +453,15 @@ _zcomp() {
 
     $__zc_MouseTrack && {
         # Turn off mouse tracking
-        printf $'\e[?1003l'
+        printf '\e[?1003l'
     }
 
     for (( _zcj=0 ; _zcj<_zc_num_rows ; _zcj++ )) do
-        printf $'\n\e[2K'
+        printf '\n\e[2K'
     done
 
     # reset cursor position
-    printf $'\e8'
+    printf '\e8'
 
     # reset signal handlers
     trap - SIGINT SIGQUIT ; eval "$_zc_xtrap"
