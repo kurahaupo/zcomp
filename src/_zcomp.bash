@@ -475,7 +475,7 @@ _zcomp() {
 ((__zc_debug)) && set +x
 shopt -u nullglob  # messes with array variable indexing :-|
 while
-    IFS=$' \t\n\r' \
+    IFS= \
     read -r _zc_line <&3
 do
     __zclog "got [$_zc_line]"
