@@ -20,8 +20,8 @@
 #
 
 case $TERM in
-(vt???*|ansi*|linux*)   __zc_resizeable=false;; # fixed-size terminal
-(*[vwxy]term*|screen*)  __zc_resizeable=true ;; # resizable terminal
+(vt???*|ansi*|linux*)   __zc_resizeable=0 ;;    # fixed-size terminal
+(*[vwxy]term*|screen*)  __zc_resizeable=1 ;;    # resizable terminal
 (*) return ;;                                   # not supported on unknown terminal types
 esac
 
@@ -38,7 +38,7 @@ __zc_ForceCols=0        # set non-zero to override terminal height
 __zc_ForceRows=0        # set non-zero to override terminal width
 __zc_MaxCols=160        # won't work higher than 223 with mouse-tracking
 __zc_MaxRows=24         # arbitrary user choice
-__zc_MouseTrack=true    # arbitrary user choice
+__zc_MouseTrack=1       # arbitrary user choice (0=false, ~0=true)
 __zc_PaddingCols=2      # leave gaps between columns
 __zc_ReserveCols=2      # don't use rightmost columns in terminal
 
@@ -79,9 +79,9 @@ fi
 #
 
 __zc_dashx=+x
-[[ $- = *x* ]] && __zc_dashx=-x #__zc_debug=true
+[[ $- = *x* ]] && __zc_dashx=-x #__zc_debug=1
 
-if ${__zc_debug:-false}
+if ((__zc_debug))
 then
     exec 4>| $HOME/tmp/_zcomp.log 5>&4 || return
     BASH_XTRACEFD=5
@@ -215,13 +215,13 @@ fi
             (( _zc_max_item_width > ${#COMPREPLY[_zcj]} || ( _zc_max_item_width = ${#COMPREPLY[_zcj]} ) ))
         done
         # Bail out if fewer than two options remain
-        (( _zc_num_items > 1 )) && _zc_redraw=true _zc_resize=true
+        (( _zc_num_items > 1 )) && _zc_redraw=1 _zc_resize=1
     }
 
     __zc_get_term_size() {
         read -r   LINES            COLUMNS _   < <( stty size     2>/dev/null ) ||
         { read -r LINES && read -r COLUMNS ; } < <( tput -S <<<$'lines\ncols' )
-        _zc_resize=true
+        _zc_resize=1
     }
 
     __zc_getkey() {
@@ -257,7 +257,7 @@ _zcomp() {
     local _zc_genfunc=$1
     local -a _zc_genargs=("${@:2}")
 
-    local _zc_button _zc_first _zc_key _zc_redraw _zc_resize _zcJ _zc_xtrap
+    local _zc_button _zc_first=1 _zc_key _zc_redraw _zc_resize _zcJ _zc_xtrap
     local -i _zc_col_offset _zc_col_width _zc_cur _zc_dcol _zc_mcol _zc_mrow
     local -i _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
     local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_scrn_cols
@@ -268,7 +268,6 @@ _zcomp() {
     # Bail out if not wanting immediate completion
     [[ "${COMP_TYPE:-9}" = 9 ]] || return 0
 
-    _zc_first=true
     (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_rows=-1 ))
 
     __zc_gen || { __zclog "Early completion: COUNT=$_zc_num_items COMPREPLY=(${COMPREPLY[*]})" ; return 0 ; }
@@ -278,7 +277,7 @@ _zcomp() {
     trap _zc_key=SIGQUIT SIGQUIT
 
     while
-        if $_zc_resize
+        if ((_zc_resize))
         then
             # get screen dimensions
             (( ( _zc_scrn_cols = __zc_ForceCols ) || ( _zc_scrn_cols = COLUMNS ),
@@ -300,8 +299,8 @@ _zcomp() {
             (( _zc_num_rows = 1 + (_zc_num_items-1) / _zc_num_dcols,
                _zc_num_rows < _zc_scrn_rows || ( _zc_num_rows = _zc_scrn_rows-1 ) ))
             (( _zc_num_vcols = 1 + (_zc_num_items-1) / _zc_num_rows ))
-            _zc_resize=false
-            _zc_redraw=true
+            _zc_resize=0
+            _zc_redraw=1
         fi
 
         (( _zc_row  = _zc_cur%_zc_num_rows,
@@ -312,19 +311,19 @@ _zcomp() {
         then
             (( _zc_col_offset += _zc_dcol-_zc_num_dcols+1,
                _zc_dcol = _zc_vcol - _zc_col_offset ))
-            _zc_redraw=true
+            _zc_redraw=1
         fi
         if (( _zc_dcol < 0 ))
         then
             (( _zc_col_offset += _zc_dcol,
                _zc_dcol = _zc_vcol - _zc_col_offset ))
-            _zc_redraw=true
+            _zc_redraw=1
         fi
 
-        if $_zc_redraw
+        if ((_zc_redraw))
         then
             # save starting cursor position
-            $_zc_first && printf '\e7'
+            ((_zc_first)) && printf '\e7'
 
             for (( _zcj = 0 ; _zcj < _zc_num_rows ; _zcj++ )) do
                 printf '\r\n\e[K'
@@ -342,7 +341,7 @@ _zcomp() {
             fi
             (( _zc_prev_num_rows = _zc_num_rows ))
 
-            $__zc_MouseTrack && $_zc_first && {
+            ((__zc_MouseTrack && _zc_first)) && {
                 # Ask Xterm to report current cursor position; this will cause a
                 # "current position" «CSI?row;colR» response that will be read in the
                 # main loop
@@ -352,10 +351,10 @@ _zcomp() {
             }
 
             # re-save cursor position after any scrolling
-            $_zc_first && printf "\e8\e[%uB\e[%uA\e7" $_zc_num_rows $_zc_num_rows
+            ((_zc_first)) && printf "\e8\e[%uB\e[%uA\e7" $_zc_num_rows $_zc_num_rows
 
-            _zc_first=false
-            _zc_redraw=false
+            _zc_first=0
+            _zc_redraw=0
         fi
 
         printf "\e8\r\e[%uB\e[%uG %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uD" \
@@ -431,7 +430,7 @@ _zcomp() {
                             [[ -n ${COMP_WORDS[COMP_CWORD]} ]] || break
                             ((--COMP_POINT)) ; COMP_LINE="${COMP_LINE:0:COMP_POINT-1}${COMP_LINE:COMP_POINT}"
                             __zc_gen || break
-                            _zc_redraw=true _zc_resize=true ;;
+                            _zc_redraw=1 _zc_resize=1 ;;
 
         # extend current word with printable character
         ([!-~]*)
@@ -439,7 +438,7 @@ _zcomp() {
                             ((++COMP_POINT))
                             COMP_WORDS[COMP_CWORD]+="$_zc_key"
                             __zc_gen || break
-                            _zc_redraw=true _zc_resize=true ;;
+                            _zc_redraw=1 _zc_resize=1 ;;
 
         esac
         (( _zc_cur < _zc_num_items || ( _zc_cur = _zc_num_items-1 ) ))
@@ -451,7 +450,7 @@ _zcomp() {
     else COMPREPLY=()
     fi
 
-    $__zc_MouseTrack && {
+    ((__zc_MouseTrack)) && {
         # Turn off mouse tracking
         printf '\e[?1003l'
     }
@@ -473,7 +472,7 @@ _zcomp() {
 # Install the _zcomp handler over the top of every previously-installed handler
 #
 
-${__zc_debug:-false} && set +x
+((__zc_debug)) && set +x
 shopt -u nullglob  # messes with array variable indexing :-|
 while
     IFS=$' \t\n\r' \
@@ -526,12 +525,12 @@ do
     done
     _zc_wrapper="$_zc_genfunc ${_zc_wrapargs[*]}"
     _zc_wrapper="__zcwrap_${_zc_wrapper//[^_0-9a-zA-Z.-]/___}"
-    ${__zc_debug:-false} && set -x
+    ((__zc_debug)) && set -x
     eval        "$_zc_wrapper() { _zcomp $( printf " %q" "$_zc_genfunc" "$_zc_gencmd" "${_zc_wrapargs[@]}" ) ; }"  &&
     complete -F "$_zc_wrapper" "${_zc_cmdline[@]}"
-    ${__zc_debug:-false} && set +x
+    ((__zc_debug)) && set +x
 done 3< <( complete -p )
-${__zc_debug:-false} && set $__zc_dashx
+((__zc_debug)) && set $__zc_dashx
 
 #__zcwrap__E() { _zcomp : -c ; }
 #complete -F __zcwrap__E -E
