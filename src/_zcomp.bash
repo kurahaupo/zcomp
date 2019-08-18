@@ -1,5 +1,10 @@
 #!/module/for/bash
 
+# This needs to be "sourced", rather than run as a stand-alone script, as it
+# needs to modify the completion bindings of the user's interactive shell.
+#
+################################################################################
+
 #
 # NAMESPACE: parameters and functions with __zc_ prefix need to remain set
 # between invocations; ones with _zc_ prefix are used but do not need to
@@ -9,8 +14,8 @@
 ################################################################################
 #
 # Note: this script is specific to Xterm and related VT100-derivative terminals
-# It also requires either "tput -S" (that understands "rows" & "lines";
-# probably any POSIX compliant version), or "stty size" (which means, probably
+# It also requires either "tput -S" (that understands "rows" & "lines", so
+# probably any POSIX compliant version), or "stty size" (which probably means
 # only on GNU's "stty").
 #
 
@@ -209,7 +214,7 @@ fi
         for (( _zc_max_item_width = 0, _zcj = 0 ; _zcj < _zc_num_items ; ++_zcj )) do
             (( _zc_max_item_width > ${#COMPREPLY[_zcj]} || ( _zc_max_item_width = ${#COMPREPLY[_zcj]} ) ))
         done
-        # Bail out if only one option remains
+        # Bail out if fewer than two options remain
         (( _zc_num_items > 1 )) && _zc_redraw=true _zc_resize=true
     }
 
@@ -542,3 +547,31 @@ return 0
 #($'\e[MA'??)               ;;  # 33 mouse button 2 drag
 #($'\e[MV'??)               ;;  # 54 mouse button 3 drag
 #($'\e[M#'??|$'\e[M\x81'??) ;;  # 3,97 mouse movement or button release
+
+#
+# home  \e[1~
+# ins   \e[2~
+# del   \e[3~
+# end   \e[4~
+# pgup  \e[5~
+# pgdn  \e[6~
+#
+# ;n modifier has n = 1 plus the sum of
+#   1 for shift
+#   2 for alt
+#   4 for ctrl
+# so
+#  ;1   plain (always omitted, but defined with value 1 to follow the general rule about an omitted values always defaulting to 1)
+#  ;2   shift
+#  ;3   ctrl
+#  ;4   ctrl+shift
+#  ;5   alt
+#  ;6   shift+alt
+#  ;7   ctrl+alt
+#  ;8   ctrl+shift+alt
+#
+
+# Footnotes
+#   [1] Bash prior to v3.1 did not have array+=(...), so code array=("${array[@]}" ...) instead
+
+# vim: set fenc=utf8 :
