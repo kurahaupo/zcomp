@@ -79,7 +79,7 @@ fi
 #
 
 __zc_dashx=+x
-[[ $- = *x* ]] && __zc_dashx=-x #__zc_debug=1
+[[ $- = *x* ]] && __zc_dashx=-x __zc_debug=1
 
 if ((__zc_debug))
 then
