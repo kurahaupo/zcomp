@@ -827,7 +827,6 @@ _zcomp2() {
 # Install the _zcomp handler over the top of every previously-installed handler
 #
 
-((__zc_debug)) && set +x
 shopt -u nullglob  # messes with array variable indexing :-|
 while
     IFS= \
@@ -886,7 +885,6 @@ do
     done
     _zc_wrapper="$_zc_genfunc ${_zc_wrapargs[*]}"
     _zc_wrapper="__zcwrap_${_zc_wrapper//[^_0-9a-zA-Z.-]/___}"
-    ((__zc_debug)) && set -x
     {
         _zc_wrapdef="$_zc_wrapper() { _zcomp"
         _zc__add() {
@@ -906,9 +904,7 @@ do
         eval "$_zc_wrapdef"
     } &&
     complete -F "$_zc_wrapper" "${_zc_cmdline[@]}"
-    ((__zc_debug)) && set +x
 done 3< <( complete -p )
-((__zc_debug)) && set $__zc_dashx
 
 #__zcwrap__E() { _zcomp 0 0 0 -c ; }
 #complete -F __zcwrap__E -E
