@@ -569,18 +569,18 @@ _zcomp2() {
                 __zc_get_term_size &&
                     continue                    # go back and recompute based on $COLUMNS & $LINES
             fi
-            (( _zc_scrn_rows <= __zc_MaxRows || ( _zc_scrn_rows = __zc_MaxRows ) ))
-            (( _zc_scrn_cols <= __zc_MaxCols || ( _zc_scrn_cols = __zc_MaxCols ) ))
-            (( _zc_col_width = _zc_max_item_width,
-               _zc_col_width <= _zc_scrn_cols-__zc_ReserveCols  || ( _zc_col_width = _zc_scrn_cols-__zc_ReserveCols ) ))
-            (( _zc_num_dcols = (_zc_scrn_cols-__zc_ReserveCols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
-               _zc_num_dcols < _zc_num_items     || ( _zc_num_dcols = _zc_num_items ),
-               _zc_num_dcols > 0                 || ( _zc_num_dcols = 1 ) ))
-            (( _zc_num_rows = 1 + (_zc_num_items-1) / _zc_num_dcols,
-               _zc_num_rows < _zc_scrn_rows || ( _zc_num_rows = _zc_scrn_rows-1 ) ))
-            (( _zc_num_vcols = 1 + (_zc_num_items-1) / _zc_num_rows ))
-            _zc_resize=0
-            _zc_redraw=1
+            (( _zc_scrn_rows <= __zc_MaxRows    || ( _zc_scrn_rows = __zc_MaxRows ),
+               _zc_scrn_cols <= __zc_MaxCols    || ( _zc_scrn_cols = __zc_MaxCols ),
+               _zc_col_width = _zc_max_item_width,
+               _zc_col_width <= _zc_scrn_cols-__zc_ReserveCols || ( _zc_col_width = _zc_scrn_cols-__zc_ReserveCols ),
+               _zc_num_dcols = (_zc_scrn_cols-__zc_ReserveCols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
+               _zc_num_dcols < _zc_num_items    || ( _zc_num_dcols = _zc_num_items ),
+               _zc_num_dcols > 0                || ( _zc_num_dcols = 1 ),
+               _zc_num_rows = 1 + (_zc_num_items-1) / _zc_num_dcols,
+               _zc_num_rows < _zc_scrn_rows     || ( _zc_num_rows = _zc_scrn_rows-1 ),
+               _zc_num_vcols = 1 + (_zc_num_items-1) / _zc_num_rows,
+               _zc_resize = 0,
+               _zc_redraw = 1 ))
         fi
 
         (( _zc_row  = _zc_cur%_zc_num_rows,
@@ -590,14 +590,14 @@ _zcomp2() {
         if (( _zc_dcol >= _zc_num_dcols ))
         then
             (( _zc_col_offset += _zc_dcol-_zc_num_dcols+1,
-               _zc_dcol = _zc_vcol - _zc_col_offset ))
-            _zc_redraw=1
+               _zc_dcol = _zc_vcol - _zc_col_offset,
+               _zc_redraw = 1 ))
         fi
         if (( _zc_dcol < 0 ))
         then
             (( _zc_col_offset += _zc_dcol,
-               _zc_dcol = _zc_vcol - _zc_col_offset ))
-            _zc_redraw=1
+               _zc_dcol = _zc_vcol - _zc_col_offset,
+               _zc_redraw = 1 ))
         fi
 
         if ((_zc_redraw))
@@ -736,8 +736,8 @@ _zcomp2() {
                             _zc_redraw=1 _zc_resize=1 ;;
 
         esac
-        (( _zc_cur < _zc_num_items || ( _zc_cur = _zc_num_items-1 ) ))
-        (( _zc_cur >= 0 || ( _zc_cur = 0 ) ))
+        (( _zc_cur < _zc_num_items || ( _zc_cur = _zc_num_items-1 ),
+           _zc_cur >= 0 || ( _zc_cur = 0 ) ))
     done
 
     if (( _zc_cur >= 0 ))
