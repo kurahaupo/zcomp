@@ -320,7 +320,7 @@ fi
 
     # __zc__swap is only used internally by __zc_sort (both versions)
     __zc__swap() {
-        #__zcdebug sortswap "swapping [$(($1))]=${COMPREPLY[$1]} [$(($2))]=${COMPREPLY[$2]}"
+        __zcdebug sortswap "swapping [$(($1))]=${COMPREPLY[$1]} [$(($2))]=${COMPREPLY[$2]}"
         local temp=${COMPREPLY[$1]}
                      COMPREPLY[$1]=${COMPREPLY[$2]}
                                      COMPREPLY[$2]=$temp
@@ -376,7 +376,7 @@ fi
 
     __zc_sort() {
         local i j k n
-        #__zcdebug sortmain -@1 'pre-sort %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
+        __zcdebug sortmain -@1 'pre-sort %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
         for (( i=2, n=${#COMPREPLY[@]} ; i<=n ; ++i )) do
             for (( j=i ; (k=j>>1)>=1 ; j=k )) do
                 if   [[ ${COMPREPLY[j-1]} > ${COMPREPLY[k-1]} ]]
@@ -385,7 +385,7 @@ fi
                 fi
             done
         done
-        #__zcdebug sortmain -@1 'heaped %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
+        __zcdebug sortmain -@1 'heaped %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
         for (( n=${#COMPREPLY[@]} ; n>0 ;)) do
             __zc__swap 0 n-1
             ((--n))
@@ -402,27 +402,28 @@ fi
                 fi
             done
         done
-        #__zcdebug sortmain -@1 'sorted  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
+        __zcdebug sortmain -@1 'sorted  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
     }
 
     __zc_unique() {
-        #__zcdebug sortuniq -@1 'START unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
+        __zcdebug sortuniq -@1 'START unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
         local i was_ok
         for (( i=${#COMPREPLY[@]}-1, was_ok=1 ; i>=1 ; i-- )) do
             if [[ ${COMPREPLY[i-1]} = ${COMPREPLY[i]} ]]
             then
-                #__zcdebug sortuniq -@3 'merge [%u] duplicated by [%u]=%q' $((i-1)) $((i)) "${COMPREPLY[i]}"
+                __zcdebug sortuniq -@3 'merge [%u] duplicated by [%u]=%q' $((i-1)) $((i)) "${COMPREPLY[i]}"
                 unset 'COMPREPLY[i]'
                 was_ok=0
             fi
         done
         ((was_ok)) && return
         COMPREPLY=("${COMPREPLY[@]}") ;
-        #__zcdebug sortuniq -@1 'FINISH unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
+        __zcdebug sortuniq -@1 'FINISH unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
     }
 
     __zc_gen() {
         local IFS=$' \t\n'
+        __zcdebug gen -@0 'ZCGEN START' -@ [] "$@"
         COMPREPLY=()
         $_zc_genfunc
         IFS=$'\n'
@@ -435,6 +436,7 @@ fi
         for (( _zc_max_item_width = 0, _zcj = 0 ; _zcj < _zc_num_items ; ++_zcj )) do
             (( _zc_max_item_width > ${#COMPREPLY[_zcj]} || ( _zc_max_item_width = ${#COMPREPLY[_zcj]} ) ))
         done
+        __zcdebug gen -@1 'ZCGEN END ' -@ [] "${COMPREPLY[*]}"
         # Set return status so that _zcomp bails out if fewer than two options remain
         (( _zc_num_items > 1 )) && _zc_redraw=1 _zc_resize=1
     }
