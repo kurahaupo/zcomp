@@ -41,35 +41,58 @@ __zc_MaxRows=24         # arbitrary user choice
 __zc_MouseTrack=1       # arbitrary user choice (0=false, ~0=true)
 __zc_PaddingCols=2      # leave gaps between columns
 __zc_ReserveCols=2      # don't use rightmost columns in terminal
+__zc_DateTicks=1        # (for Bash ≤ 4.1) limit invocations of "date" to no
+                        # more often than once every this many seconds
 
 ################################################################################
 #
 # Check for supported shells (currently only Bash >= 3.0)
 #
+# BASH_VERSION can be avoided, because BASH_VERSINFO was added to Bash v2.0
+#
 
-(( 10#${BASH_VERSION%%.*} < 3 )) && return
+(( __zc_BASH_VERSION = BASH_VERSINFO[0] * 1000000 + BASH_VERSINFO[1] * 1000 + BASH_VERSINFO[2] ))
+(( __zc_BASH_VERSION < 3000000 )) && return
 
 #
 # Compensate for shortcomings of earlier versions of Bash
 #
 
-__zc_read_n1=-N1
-__zc_read_t01=-t0.1
-__zcd() { printf "%($*)T" -1 ; }
+__zc_has_xtracefd=1                 # set -o xtrace writes to >&$BASH_XTRACEFD
+__zc_has_varredir=1                 # can do {var}>... redirection
+__zc_read_t01=-t0.1                 # read -t can understand fractions of second
+__zc_read_n1=-N1                    # read -N is understood
+__zc_ts() { printf "%($*)T" -1 ; }  # no trailing newline
 
-if (( ${BASH_VERSION%%.*} < 4 ))
+if (( __zc_BASH_VERSION < 4000000 ))
 then
-    __zc_read_n1=-n1
+    # Bash v4.0 added support for fractional timeouts with "read -t". For older
+    # versions, use -t1 instead, which may cause user-observable delays.
+    __zc_has_xtracefd=0
     __zc_read_t01=-t1
-    # call external "date" command at most once per second, when $SECONDS
-    # changes or when format ($*) changes.
-    __zcd() {
-        (( __zcpsec == SECONDS )) && [[ "$*" = "$__zcpfmt" ]] || {
+fi
+
+if (( __zc_BASH_VERSION < 4001000 ))
+then
+    # Bash v4.x added support for "read -N$num". For older versions, use "-n"
+    # instead; note that this may potentially cause issues with some input.
+    __zc_read_n1=-n1
+    __zc_has_varredir=0
+fi
+
+if (( __zc_BASH_VERSION < 4002000 ))
+then
+    # Bash 4.2 added support for printf format specifier "%(...)T".
+    # For older versions, replace __zc_ts with a version that calls the external
+    # "date" command instead, but at most once per __zc_DateTicks seconds
+    # (based on when SECONDS changes), or whenever format ($*) changes.
+    __zc_ts() {
+        (( __zcpsec + __zc_DateTicks > SECONDS )) && [[ "$*" = "$__zcpfmt" ]] || {
             (( __zcpsec = SECONDS ))
             __zcpfmt="$*"
             __zcdate=$(date +"$__zcpfmt")
-            }
-        printf '%s' $__zcdate
+        }
+        printf '%s' "$__zcdate"
     }
 fi
 
@@ -85,7 +108,7 @@ if ((__zc_debug))
 then
     exec 4>| $HOME/tmp/_zcomp.log 5>&4 || return
     BASH_XTRACEFD=5
-    __zclog() { printf >&4 '%s %s\n' "$(__zcd +%F,%T) [$$]" "$*" ; }
+    __zclog() { __zc_ts +%F,%T >&4 ; printf >&4 '%s %s\n' " [$$]" "$*" ; }
     __zclog "Starting loading, pid=$$ tty=$(tty)"
     __zc_loaderfinish() {
         __zclog "Finished loading, pid=$$ tty=$(tty)"
