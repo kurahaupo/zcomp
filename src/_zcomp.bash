@@ -20,9 +20,18 @@
 #
 
 case $TERM in
-(vt???*|ansi*|linux*)   __zc_resizeable=0 ;;    # fixed-size terminal
-(*[vwxy]term*|screen*)  __zc_resizeable=1 ;;    # resizable terminal
-(*) return ;;                                   # not supported on unknown terminal types
+(ansi*\
+|cons*\
+|cygwin*\
+|linux*\
+|rxvt*\
+|vt???*\
+|wsvt*\
+)               __zc_resizeable=0 ;;    # fixed-size terminal
+(*[vwxy]term*\
+|screen*\
+)               __zc_resizeable=1 ;;    # resizable terminal
+(*)             return ;;               # not supported on unknown terminal types
 esac
 
 __zc_cNormal=$'\e[33;40;0m'     # show list in yellow-on-black
@@ -34,6 +43,8 @@ __zc_cEnd=$'\e[39;49;0m'        # go back to "normal" colours
 # User-configurable behaviour
 #
 
+__zc_DateTicks=1        # (for Bash ≤ 4.1) limit invocations of "date" to no
+                        # more often than once every this many seconds
 __zc_ForceCols=0        # set non-zero to override terminal height
 __zc_ForceRows=0        # set non-zero to override terminal width
 __zc_MaxCols=160        # won't work higher than 223 with mouse-tracking
@@ -41,8 +52,6 @@ __zc_MaxRows=24         # arbitrary user choice
 __zc_MouseTrack=1       # arbitrary user choice (0=false, ~0=true)
 __zc_PaddingCols=2      # leave gaps between columns
 __zc_ReserveCols=2      # don't use rightmost columns in terminal
-__zc_DateTicks=1        # (for Bash ≤ 4.1) limit invocations of "date" to no
-                        # more often than once every this many seconds
 
 ################################################################################
 #
@@ -401,6 +410,9 @@ _zcomp() {
         __zc_getkey     # returns value in _zc_key
     do
         printf "\e[%uD %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uA\r" 1 "$__zc_cNormal" "${COMPREPLY[_zc_cur]}" "$__zc_cEnd" $(( _zc_row+1 ))
+
+        # Terminals don't usually produce the ;1~ variant, but just make sure
+        _zc_key=${_zc_key/';1~'/'~'}
 
         case "$_zc_key" in
 
