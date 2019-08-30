@@ -566,7 +566,7 @@ _zcomp2() {
     trap __zc_get_term_size SIGWINCH
 
     while
-        if ((_zc_resize))
+        if ((_zc_resize || _zc_scrn_cols <= 0 || _zc_scrn_rows <= 0))
         then
             # get screen dimensions
             (( ( _zc_scrn_cols = __zc_ForceCols ) || ( _zc_scrn_cols = COLUMNS ),
@@ -586,6 +586,7 @@ _zcomp2() {
                _zc_num_dcols > 0                || ( _zc_num_dcols = 1 ),
                _zc_num_rows = 1 + (_zc_num_items-1) / _zc_num_dcols,
                _zc_num_rows < _zc_scrn_rows     || ( _zc_num_rows = _zc_scrn_rows-1 ),
+               _zc_num_rows > 0                 || ( _zc_num_rows = 1 ),
                _zc_num_vcols = 1 + (_zc_num_items-1) / _zc_num_rows,
                _zc_resize = 0,
                _zc_redraw = 1 ))
