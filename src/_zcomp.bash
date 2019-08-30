@@ -8,7 +8,11 @@
 #
 # NAMESPACE: parameters and functions with __zc_ prefix need to remain set
 # between invocations; ones with _zc_ prefix are used but do not need to
-# persist; all other items are localized.
+# persist; they are normally localized but there might be leaks.  All other
+# items are localized.
+#
+# Functions starting with __zcwrap_ are the wrapper completion functions, and
+# must remain set as long as the corresponding completion binding is set.
 #
 
 ################################################################################
@@ -16,22 +20,23 @@
 # User-configurable behaviour
 #
 
-__zc_DateTicks=1        # (for Bash ≤ 4.1) limit invocations of "date" to no
-                        # more often than once every this many seconds
+__zc_DateTicks=1        # invoke "date" no more than once every second or so (before Bash version 4.2)
 __zc_ForceCols=0        # set non-zero to override terminal height
 __zc_ForceRows=0        # set non-zero to override terminal width
-__zc_MaxCols=223        # won't work higher than 223 with mouse-tracking
-__zc_MaxRows=223        # arbitrary user choice
-__zc_MouseTrack=1       # arbitrary user choice (0=false, ~0=true)
+__zc_MaxCols=223        # } limited user preference; note that mouse tracking can't
+__zc_MaxRows=223        # } report rows or columns higher than 223=0xff-0x20
+__zc_MouseTrack=1       # arbitrary user preference (numeric true/false)
 __zc_PaddingCols=2      # leave gaps between columns
-__zc_ReserveCols=2      # don't use rightmost columns in terminal
+__zc_ReserveCols=2      # don't use rightmost columns in terminal, to avoid auto-right-margin causing problems
 
 ################################################################################
 #
-# Note: this script is specific to Xterm and related VT100-derivative terminals
-# It also requires either "tput -S" (that understands "rows" & "lines", so
-# probably any POSIX compliant version), or "stty size" (which probably means
-# only on GNU's "stty").
+# Note: This script only works with ANSI-style terminals and terminal
+# emulators, such as Xterm; it can cope with resizable terminal windows.
+#
+# It also requires either "tput -S" (and a version that understands "rows" &
+# "lines", so probably any POSIX compliant version), or "stty size" (which
+# probably means only GNU's "stty").
 #
 
 case $TERM in
@@ -89,9 +94,10 @@ if (( __zc_BASH_VERSION < 4001000 ))
 then
     # Note [4.1]
     # Bash v4.1 added support for « read -N$num ».
-    # For older versions, use « -n$num » instead, which may cause issues if an
-    # unrecognized key sequence is received, followed by another key within the
-    # timeout period.
+    # For older versions, use « read -n$num » instead, which may cause issues
+    # if the tty's eol2 is set to some character that's embedded within a key's
+    # escape sequence. (In particular this may apply when eol2 is set to ESC by
+    # readline in vi mode.)
     __zc_read_n1=-n1
     # Bash v4.1 added support for « {var}> » redirection.
     # For older versions, use fixed numbers for filedescriptors.
@@ -256,7 +262,7 @@ fi
         for (( _zc_max_item_width = 0, _zcj = 0 ; _zcj < _zc_num_items ; ++_zcj )) do
             (( _zc_max_item_width > ${#COMPREPLY[_zcj]} || ( _zc_max_item_width = ${#COMPREPLY[_zcj]} ) ))
         done
-        # Bail out if fewer than two options remain
+        # Set return status so that _zcomp bails out if fewer than two options remain
         (( _zc_num_items > 1 )) && _zc_redraw=1 _zc_resize=1
     }
 
@@ -392,13 +398,23 @@ _zcomp() {
                 printf '\e[?1003h'
             }
 
-            # re-save cursor position after any scrolling
+            # re-save cursor position after any scrolling:
+            #  - go to previous saved cursor position
+            #  - move $_zc_num_rows down (which will be truncated if scrolling has occurred)
+            #  - move $_zc_num_rows up
+            #  - save new cursor position
             ((_zc_first)) && printf "\e8\e[%uB\e[%uA\e7" $_zc_num_rows $_zc_num_rows
 
             _zc_first=0
             _zc_redraw=0
         fi
 
+        #
+        # Highlight currently selected item:
+        #
+        # restore cursor position, left column, down (_zc_row+1), column
+        # (_zc_dcol*(_zc_col_width+2)+1), left (_zc_col_width+1)
+        #
         printf "\e8\r\e[%uB\e[%uG %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uD" \
                 $(( _zc_row+1 )) \
                 $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols)+1 )) \
