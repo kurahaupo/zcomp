@@ -449,6 +449,17 @@ fi
     }
 
     #
+    # Add newline-delimited items from a string to the COMPREPLY array
+    #
+    __zc_genadd() {
+        local _f=$-         # save option flags, particularly -f
+        set -f              # disable globbing
+        local IFS=$'\n'
+        COMPREPLY+=( $1 )   # intentionally unquoted; only splits on newlines
+        set +f ${_f:+-$_f}  # restore globbing, if it was previous on
+    }
+
+    #
     # Emulate the normal sequence for completion.
     # Mostly it can be handled by compgen, however -C & -F don't work as
     # advertised when invoked via compgen, so do them directly.
@@ -457,12 +468,41 @@ fi
     # wrapper function for each bound completion.
     #
     __zc_gen() {
-        local IFS=$' \t\n'
+        local _zc_list
         __zcdebug gen -@0 'ZCGEN START' -@ [] "$@"
         COMPREPLY=()
-        $_zc_genfunc
-        IFS=$'\n'
-        (( ${#_zc_genargs[@]} )) && COMPREPLY+=( $( compgen "${_zc_genargs[@]}" "${COMP_WORDS[COMP_CWORD]}" ) )
+        if (( ${#_zc_genfunc[@]} ))
+        then
+            (( ${#_zc_genfunc[@]} == 1 )) || __zcdebug gen 'GENFUNC received more than one arg, putting the others last'
+            "${_zc_genfunc[@]:0:1}" "${_zc_genargs[@]}" "${_zc_genfunc[@]:1}"
+            __zcdebug gen -@0 'GENFUNC' \
+                    -@« [] "${_zc_genfunc[@]}" » \
+                    -@« [] "${_zc_genargs[@]}" » \
+                    -@1 ' returned %x' $? \
+                    -@0 ' replied' \
+                    -@  [] "${COMPREPLY[@]}"
+        fi
+        if (( ${#_zc_gencmd[@]} ))
+        then
+            (( ${#_zc_gencmd[@]} == 1 )) || __zcdebug gen 'GENCMD received more than one arg; ignoring all but first'
+            _zc_list=$( unset IFS ; eval "$_zc_gencmd$( printf ' %q' "${_zc_genargs[@]}" )" )
+            __zcdebug gen -@1 'GENCMD (%q)' "$_zc_genfunc" \
+                    -@« [] "${_zc_genargs[@]}" » \
+                    -@1 'returned %x, replied ' $? \
+                    -@1 [] "$_zc_list"
+            __zc_genadd "$_zc_list"
+        fi
+        if (( ${#_zc_compgen_args[@]} ))
+        then
+            _zc_list=$( compgen -o nospace "${_zc_compgen_args[@]}" "${COMP_WORDS[COMP_CWORD]}" )
+            __zcdebug gen -@0 'GENCMD' \
+                    -@1 [] "$_zc_genfunc" \
+                    -@« [] "${_zc_genargs[@]}" » \
+                    -@1 ' returned %x, replied' $? \
+                    -@  [] "$_zc_list"
+            __zc_genadd "$_zc_list"
+        fi
+
         __zc_sort       # sort COMPREPLY[]
         __zc_unique     # remove dups
         # count of items, used in lots of places
@@ -539,9 +579,10 @@ _zcomp() {
 _zcomp2() {
     __zcdebug zcomp -@0 'Starting completion: args=' -@$# [] "$@" \
             -@0 ' COMPREPLY=' -@ [] "${COMPREPLY[@]}"
-
-    local _zc_genfunc=$1
-    local -a _zc_genargs=("${@:2}")
+    local -a _zc_genfunc=( "${@:2:$1}" )       ; shift $(($1+1))
+    local -a _zc_gencmd=( "${@:2:$1}" )        ; shift $(($1+1))
+    local -a _zc_compgen_args=( "${@:2:$1}" )  ; shift $(($1+1))
+    local -a _zc_genargs=("${@}")
 
     local _zc_button _zc_first=1 _zc_key _zc_redraw _zc_resize _zcJ
     local -i _zc_col_offset _zc_col_width _zc_cur _zc_dcol _zc_mcol _zc_mrow
@@ -834,13 +875,30 @@ do
     _zc_wrapper="$_zc_genfunc ${_zc_wrapargs[*]}"
     _zc_wrapper="__zcwrap_${_zc_wrapper//[^_0-9a-zA-Z.-]/___}"
     ((__zc_debug)) && set -x
-    eval        "$_zc_wrapper() { _zcomp $( printf " %q" "$_zc_genfunc" "$_zc_gencmd" "${_zc_wrapargs[@]}" ) ; }"  &&
+    {
+        _zc_wrapdef="$_zc_wrapper() { _zcomp"
+        _zc__add() {
+            _zc_wrapdef+=" $#"
+            if (($#))
+            then
+                local IFS=' ' _zc_i
+                printf -v _zc_i ' %q' "$@"
+                _zc_wrapdef+=" $_zc_i"
+            fi
+        }
+        _zc__add "${_zc_genfunc[@]}"
+        _zc__add "${_zc_gencmd[@]}"
+        _zc__add "${_zc_compgen_args[@]}"
+        unset -f _zc__add
+        _zc_wrapdef+=' "$@" ; }'
+        eval "$_zc_wrapdef"
+    } &&
     complete -F "$_zc_wrapper" "${_zc_cmdline[@]}"
     ((__zc_debug)) && set +x
 done 3< <( complete -p )
 ((__zc_debug)) && set $__zc_dashx
 
-#__zcwrap__E() { _zcomp : -c ; }
+#__zcwrap__E() { _zcomp 0 0 0 -c ; }
 #complete -F __zcwrap__E -E
 
 for _zc_f in "${_zc_atexit[@]}"
