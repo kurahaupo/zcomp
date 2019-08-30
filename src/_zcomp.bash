@@ -823,77 +823,113 @@ _zcomp2() {
 }
 
 #
-# And now for the hard part:
-# Install the _zcomp handler over the top of every previously-installed handler
+# Define "complete" as a function so that any subsequent completion
+# requests will also be wrapped.
+#
+# If invoked with '-p' or '-r' or '-F __zcwrap_*', or with no args at all, just
+# pass through to the builtin.  Otherwise synthesize a wrapper function, and
+# call builtin complete with -F to call it.
+#
+# The -C and -F options have to be handled directly by the wrapper, because
+# they aren't usable via compgen. According to the bash man page:
+#
+#      "When using the -F or -C options, the various shell variables set by the
+#       programmable completion facilities, while available, will not have
+#       useful values."
+#
+# Items that should only take effect after _zcomp returns should be handed
+# to complete:
+#       -o filenames
+#       -o noquote
+#       -o nospace
+#       names of commands for which completions are being defined, removed, or
+#       queried (including the pseudo-names -D & -E)
+#
+# Everything else should be deferred to the synthesized wrapper.
 #
 
-shopt -u nullglob  # messes with array variable indexing :-|
-while
-    IFS= \
-    read -r _zc_line <&3
-do
-    __zcdebug zcomp -@1 'got [%q]' "$_zc_line"
+complete() {
+    local -a _zc_orig_args=("$@")
+    local -a _zc_genfunc=()
+    local -a _zc_gencmd=()
+    local -a _zc_compgen_args=()
+    local -a _zc_specargs=()
+    local -i _zc_passthru=$(($#==0)) _zc_rc
 
-    [[ $_zc_line = 'complete '* ]] || {
-        __zcdebug zcomp -@1 "completion line does not start with 'complete' [%q]" "$_zc_line"
-        continue
-        }
-    eval "_zc_cmdline=(${_zc_line#complete })" || {
-        __zcdebug zcomp -@1 'unparsable completion line [%q]' "$_zc_line"
-        continue
-    }
-    _zc_numargs=${#_zc_cmdline[@]}
-    _zc_wrapargs=()
-    _zc_genfunc=true
-    _zc_gencmd=true
-    for (( _zc_argnum=0 ; _zc_argnum<_zc_numargs ; ++_zc_argnum ))
+    __zcdebug complete -@0 'START COMPLETE ' -@ [] "$@"
+
+    while (($#))
     do
-        if [[ ${_zc_cmdline[_zc_argnum]} = -F && ${_zc_cmdline[_zc_argnum+1]} = __zcwrap_* ]]
-        then
-            __zcdebug zcomp -@2 "Skipping '%q' which is already wrapped with %q" "$_zc_line" "${_zc_cmdline[_zc_argnum+1]}"
-            continue 2
-        fi
-        case ${_zc_cmdline[_zc_argnum]} in
-        (-[PS]) ((++_zc_argnum)) ;;
-        (-F)
-            _zc_genfunc=${_zc_cmdline[_zc_argnum+1]:?'Missing arg for -F'}
-            unset '_zc_cmdline[_zc_argnum]' '_zc_cmdline[_zc_argnum+1]'
-            ((++_zc_argnum))
+        case $1 in
+        (-[AGW])
+            _zc_compgen_args+=( "$1" "$2" )
+            shift
             ;;
         (-C)
-            _zc_gencmd=${_zc_cmdline[_zc_argnum+1]:?'Missing arg for -C'}
-            unset '_zc_cmdline[_zc_argnum]' '_zc_cmdline[_zc_argnum+1]'
-            ((++_zc_argnum))
+            _zc_gencmd=("$2")
+            shift
             ;;
-        (-[o])
-            # need "-o OPT" in both cmdline and genargs
-            _zc_wrapargs+=( "${_zc_cmdline[@]:_zc_argnum:2}" )
-            ((++_zc_argnum))
+        (-[DEI])
+            _zc_specargs+=( "$1" )
             ;;
-        (-[ACGW])
-            _zc_wrapargs+=( "${_zc_cmdline[@]:_zc_argnum:2}" )
-            unset '_zc_cmdline[_zc_argnum]' '_zc_cmdline[_zc_argnum+1]'
-            ((++_zc_argnum))
+        (-F)
+            if [[ $2 = __zcwrap_* ]]
+            then
+                _zc_passthru=1
+                break
+            fi
+            _zc_genfunc=("$2")
+            shift
+            ;;
+        (-[PS])
+            _zc_specargs+=( "$1" "$2" )
+            shift
+            ;;
+        (-o)
+            case $2 in
+            (filenames|noquote|nospace)
+                _zc_specargs+=(     "$1" "$2" ) ;;
+            (*) _zc_compgen_args+=( "$1" "$2" ) ;;
+            esac
+            shift
+            ;;
+        (-[pr])
+            _zc_passthru=1
+            break
             ;;
         (-[a-z])
-            _zc_wrapargs+=( "${_zc_cmdline[_zc_argnum]}" )
-            unset '_zc_cmdline[_zc_argnum]'
+            _zc_compgen_args+=( "$1" )
             ;;
-        ([^-]*|-[DE])
+        (*)
+            break
             ;;
         esac
+        shift
     done
-    _zc_wrapper="$_zc_genfunc ${_zc_wrapargs[*]}"
-    _zc_wrapper="__zcwrap_${_zc_wrapper//[^_0-9a-zA-Z.-]/___}"
-    {
-        _zc_wrapdef="$_zc_wrapper() { _zcomp"
+    _zc_specargs+=( "$@" )
+    set --
+
+    if ((_zc_passthru))
+    then
+        __zcdebug wrap -@0 'Making pass-thru completion ' -@ [] complete "${_zc_orig_args[@]}"
+        builtin complete "${_zc_orig_args[@]}" || {
+            _zc_rc=$?
+            __zcerror -@1 'FAILED %x ' $? -@ [] builtin complete "${_zc_orig_args[@]}"
+            return $_zc_rc
+        }
+    else
+        local _zc_wrapper="${_zc_genfunc[*]} ${_zc_gencmd[*]} ${_zc_compgen_args[*]}"
+        _zc_wrapper="__zcwrap_${_zc_wrapper//[^_0-9a-zA-Z.-]/___}"
+        __zcdebug wrap -@0 "Making wrapped completion " -@@ [] complete "${_zc_orig_args[@]}"
+
+        local _zc_wrapdef="$_zc_wrapper() { _zcomp"
         _zc__add() {
             _zc_wrapdef+=" $#"
             if (($#))
             then
-                local IFS=' ' _zc_i
-                printf -v _zc_i ' %q' "$@"
-                _zc_wrapdef+=" $_zc_i"
+                local IFS=' ' _zc_q
+                printf -v _zc_q ' %q' "$@"
+                _zc_wrapdef+=" $_zc_q"
             fi
         }
         _zc__add "${_zc_genfunc[@]}"
@@ -901,13 +937,33 @@ do
         _zc__add "${_zc_compgen_args[@]}"
         unset -f _zc__add
         _zc_wrapdef+=' "$@" ; }'
-        eval "$_zc_wrapdef"
-    } &&
-    complete -F "$_zc_wrapper" "${_zc_cmdline[@]}"
-done 3< <( complete -p )
 
-#__zcwrap__E() { _zcomp 0 0 0 -c ; }
-#complete -F __zcwrap__E -E
+        __zcdebug wrap -@1 '→define wrapper: %q\n' "$_zc_wrapdef"
+        __zcdebug wrap -@0 '→complete -F' -@ ' %q' "$_zc_wrapper" "${_zc_specargs[@]}"
+        eval "$_zc_wrapdef" || {
+            _zc_rc=$?
+            __zcerror -@2 'FAILED %x define wrapper %q' $? "$_zc_wrapper"
+            return $_zc_rc
+        }
+        builtin complete -F "$_zc_wrapper" "${_zc_specargs[@]}" || {
+            _zc_rc=$?
+            __zcerror -@1 'FAILED %x ' $? -@ [] builtin complete -F "$_zc_wrapper" "${_zc_specargs[@]}"
+            return $_zc_rc
+        }
+    fi
+}
+
+#
+# Install the _zcomp handler over the top of every previously-installed handler.
+#
+# Having defined "complete" as a function, simply re-read the output of
+# "complete -p", which has always (since bash version 2.04) output in a format
+# intended to be read in again.
+#
+
+(( __zc_HaveReloadedAllCompletions++ )) ||
+_zc_WrapExistingCompletions=1 \
+. <( builtin complete -p )
 
 for _zc_f in "${_zc_atexit[@]}"
 do
