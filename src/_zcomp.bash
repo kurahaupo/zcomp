@@ -448,6 +448,14 @@ fi
         __zcdebug sortuniq -@1 'FINISH unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
     }
 
+    #
+    # Emulate the normal sequence for completion.
+    # Mostly it can be handled by compgen, however -C & -F don't work as
+    # advertised when invoked via compgen, so do them directly.
+    #
+    # This is called from several places in _zcomp, which is called from the
+    # wrapper function for each bound completion.
+    #
     __zc_gen() {
         local IFS=$' \t\n'
         __zcdebug gen -@0 'ZCGEN START' -@ [] "$@"
