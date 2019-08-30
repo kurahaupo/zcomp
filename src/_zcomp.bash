@@ -130,32 +130,197 @@ fi
 
 ################################################################################
 #
-# debugging output?
+# logging & debugging output
+#
+# We reserve fd#7 for debug output; by default it's just duped from stderr.
 #
 
-__zc_dashx=+x
-[[ $- = *x* ]] && __zc_dashx=-x __zc_debug=1
+exec 7>&2
+__zclog() { {
+    __zc_ts +%F,%T
+    printf ' [%u] ' $$
+    local -i argc=$# n_shift=$# newline=1
+    local fmt n
+    while [[ $1 = '-@'* ]] ; do
+        n=${1#-?}
+        shift
+        case $n in
+        @|'')       n_shift=$# ;;
+        «)          for ((n_shift=1;n_shift<=$#;++n_shift)) do [[ ${!n_shift} = » ]] && break ; done ; argc=n_shift-1 ;;
+        n)          newline=0 ; continue ;;
+        *[!0-9]*)   break ;;
+        *)          n_shift=n argc=n_shift ;;
+        esac
 
-if ((__zc_debug))
-then
-    exec 4>| $HOME/tmp/_zcomp.log 5>&4 || return
-    BASH_XTRACEFD=5
-    __zclog() { __zc_ts +%F,%T >&4 ; printf >&4 '%s %s\n' " [$$]" "$*" ; }
-    __zclog "Starting loading, pid=$$ tty=$(tty)"
-    __zc_loaderfinish() {
-        __zclog "Finished loading, pid=$$ tty=$(tty)"
-        BASH_XTRACEFD=
-    }
-else
-    __zclog() { :; }
+        fmt=$1
+        shift
+
+        case $fmt in
+        [\[\(\{]?(%?)[\]\)\}])
+            pre=${fmt::1} post=${fmt:${#fmt}-1:1} fmt=${fmt:1:${#fmt}-2}
+            fmt=${fmt:-\ %q}
+            sep=${fmt%%\%*} fmt=${fmt#"$sep"}
+
+            printf "$pre"
+            if ((argc>0))
+            then
+                printf "$fmt" "${@:1:1}"
+                ((argc>1)) &&
+                printf "$sep$fmt" "${@:2:argc-1}"
+            fi
+            printf "$post" ;;
+        *)
+            printf "$fmt" "${@:1:n}" ;;
+        esac
+
+        # discard
+        shift $(( 0<=n_shift && n_shift<=$# ? n_shift : $# ))
+    done
+    printf '%s' "$*"
+    ((newline)) && printf '\n'
+} >&7 ; }
+
+#
+# output level:
+#   0   silent
+#   1   errors
+#   2   warnings
+#   3   info
+#   4   verbose
+#   5   debug
+#
+# debug level/type:
+#
+#   0   turn off xtrace inside completion (and restore on return; default, WiP)
+#   1   don't turn off xtrace inside completion
+#   2   turn on xtrace inside completion (and restore on return)
+#   4   merge xtrace & zclog output
+#
+# If bash was invoked with "-x" (meaning, it's on when this file is loaded),
+# set the debug level to 2.
+#
+# If an alternative logfile is given, __zclog output will go there when inside a
+# completion function; xtrace output will also go there while inside completion,
+# if the shell version supports BASH_XTRACEFD.
+#
+# Use «__zc_set_debug $level $filename» to change this setting.
+#
+# Note:  {var}> redirections were added in version 4.1 - avoid them.
+#   git blame parse.y | grep REDIR_
+#   ⇒ 0001803 2011-11-21 20:51:19 -0500 Bash-4.1 distribution source
+#
+
+declare -i __zc_nextmask=0 __zc_mask=0 __zc_loglevel=3
+declare -Ai __zc_masknames
+__zc_masknames=( [all]='~0' )
+
+__zc_set_debug() {
+    local _zc_debug=$1 i j k l
+    __zc_debug_file=${2:-}
+    (($#>=3)) && __zc_loglevel=$3
+
+    for (( i=4 ; i <= $# ; ++i )) do
+        j=${!i} k=${j#[!a-z]} j=${j%"$k"}
+
+        if [[ $k = @(0|[1-9]*([0-9])|0x*([0-9a-f])) ]]
+        then l=$((k))
+        else l=${__zc_masknames[$k]:=$(( 1 << __zc_nextmask++ ))}
+        fi
+
+        case $j in
+        +)      (( __zc_mask |=  l )) ;;
+        -)      (( __zc_mask &=~ l )) ;;
+        =|'')   (( __zc_mask  =  l )) ;;
+        esac
+    done
+
+    # Default to stderr
+    exec 7>&2
+
+    if [[ -n $__zc_debug_file && $__zc_debug_file != - ]]
+    then
+        # Use a logfile, if specified
+        exec 7>> "$__zc_debug_file" || return
+    elif (( __zc_has_xtracefd && _zc_debug & 4  ))
+    then
+        # Merging logging & debugging output (debug&4 is set), and have support
+        # for BASH_XTRACEFD
+        if [[ -n BASH_XTRACEFD ]]
+        then
+            # Use BASH_XTRACEFD if it's already set
+            exec 7>&$BASH_XTRACEFD
+        else
+            # If not already set, arrange to use it
+            BASH_XTRACEFD=7
+        fi
+    fi
+
+    (( __zc_xtrace_mode = (_zc_debug & 3 ^ 1)-1 ))  # -1=hide; 0=inherit; +1,+2=show
+    (( _zc_debug & 8 && ( __zc_mask = ~0 ) ))    #
+    (( _zc_level = _zc_debug >> 4 ))
+
     __zc_loaderfinish() { :; }
+
+    if (( __zc_has_xtracefd ))
+    then
+        # Only if BASH_XTRACEFD is enabled, and only if {var}> redirections are enabled
+        if ((_zc_debug & 4 && __zc_xtrace_mode > 0))
+        then
+            # merge xtrace with zclog
+            BASH_XTRACEFD=7
+        else
+            # shouldn't be any output
+            BASH_XTRACEFD=
+            __zc_mask=0
+        fi
+    fi
+
+    if ((__zc_xtrace_mode >= 0 || _zc_level > 0 || __zc_mask ))
+    then
+        __zclog -@ 'Starting loading, pid=%u tty=%s\n' $$ $(tty)
+        __zc_loaderfinish() {
+            __zclog -@ 'Finished loading, pid=%u tty=%s ex=%#x' $$ "${TTY:=$(tty)}" $?
+            BASH_XTRACEFD=
+            set $__zc_dashx
+        }
+    else
+        exec 7>/dev/null
+        __zc_loaderfinish() { :; }
+    fi
+
+    if ((_zc_level > 0)) ; then __zcerror() { __zclog "$@" ; } ; else __zcerror() { : ; }; fi
+    if ((_zc_level > 1)) ; then __zcwarn()  { __zclog "$@" ; } ; else __zcwarn()  { : ; }; fi
+    if ((_zc_level > 2)) ; then __zcinfo()  { __zclog "$@" ; } ; else __zcinfo()  { : ; }; fi
+    if ((_zc_level > 3)) ; then __zctrace() { __zclog "$@" ; } ; else __zctrace() { : ; }; fi
+    if ((_zc_level > 4)) ; then __zctrace() { __zclog "$@" ; } ; else __zctrace() { : ; }; fi
+    if ((_zc_level > 5)) ; then __zcdebug() { local _zc_m=${__zc_masknames[$1]:=$(( 1 << __zc_nextmask++ ))}
+                                              (( __zc_mask & _zc_m )) || return 0
+                                              shift
+                                              __zclog "$@" ; } ; else __zcdebug() { : ; }; fi
+
+    #
+    # Inside each generated wrapper function, redirect stderr (and xtracefd, if
+    # different) to fd#7 when calling zcomp, so that xtrace for completion goes
+    # with other debugging output.
+    #
+    __zc_fd_remap='2>&7'
+    (( __zc_xtrace_mode > 0 && __zc_has_xtracefd && BASH_XTRACEFD > 2 && BASH_XTRACEFD != 7 )) && __zc_fd_remap+=" $BASH_XTRACEFD>&7"
+}
+
+if [[ $- = *x* ]]
+then
+    __zc_dashx=-x
+    __zc_set_debug 2 $HOME/tmp/_zcomp.log +all
+else
+    __zc_dashx=+x
+    __zc_set_debug 0 - -all
 fi
 
 ################################################################################
 
     # __zc__swap is only used internally by __zc_sort (both versions)
     __zc__swap() {
-        #__zclog "swapping [$(($1))]=${COMPREPLY[$1]} [$(($2))]=${COMPREPLY[$2]}"
+        #__zcdebug sortswap "swapping [$(($1))]=${COMPREPLY[$1]} [$(($2))]=${COMPREPLY[$2]}"
         local temp=${COMPREPLY[$1]}
                      COMPREPLY[$1]=${COMPREPLY[$2]}
                                      COMPREPLY[$2]=$temp
@@ -165,7 +330,7 @@ fi
 #
 #   __zc_sort() {
 #       # eliminate duplicates in COMPREPLY[]
-#       __zclog "pre-sort:$(printf '\n %q' "${COMPREPLY[@]}")"
+#       __zcdebug sortmain -@0 'pre-sort:' -@ '\n %q' "${COMPREPLY[@]}"
 #       local -a partitions
 #       local first last pv_pt pv_val
 #       # sort COMPREPLY[] using a non-recursive quicksort
@@ -204,14 +369,14 @@ fi
 #               partitions[${#partitions[@]}]=$(( last+1 )) # push
 #           fi
 #       done
-#       __zclog "post-sort:$(printf '\n %q' "${COMPREPLY[@]}")"
+#       __zcdebug sortmain -@0 'post-sort:' -@ '\n %q' "${COMPREPLY[@]}"
 #   }
 
     # heapsort (top-down)
 
     __zc_sort() {
         local i j k n
-        #__zclog "pre-sort (#${#COMPREPLY[@]}):$(printf '\n %q' "${COMPREPLY[@]}")"
+        #__zcdebug sortmain -@1 'pre-sort %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
         for (( i=2, n=${#COMPREPLY[@]} ; i<=n ; ++i )) do
             for (( j=i ; (k=j>>1)>=1 ; j=k )) do
                 if   [[ ${COMPREPLY[j-1]} > ${COMPREPLY[k-1]} ]]
@@ -220,7 +385,7 @@ fi
                 fi
             done
         done
-        #__zclog "heaped (#${#COMPREPLY[@]}):$(printf '\n %q' "${COMPREPLY[@]}")"
+        #__zcdebug sortmain -@1 'heaped %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
         for (( n=${#COMPREPLY[@]} ; n>0 ;)) do
             __zc__swap 0 n-1
             ((--n))
@@ -237,22 +402,23 @@ fi
                 fi
             done
         done
-        #__zclog "sorted (#${#COMPREPLY[@]}):$(printf '\n %q' "${COMPREPLY[@]}")"
+        #__zcdebug sortmain -@1 'sorted  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
     }
 
     __zc_unique() {
+        #__zcdebug sortuniq -@1 'START unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
         local i was_ok
         for (( i=${#COMPREPLY[@]}-1, was_ok=1 ; i>=1 ; i-- )) do
             if [[ ${COMPREPLY[i-1]} = ${COMPREPLY[i]} ]]
             then
-                #__zclog "merge [$((i-1))] duplicated by [$i]=${COMPREPLY[i]}"
+                #__zcdebug sortuniq -@3 'merge [%u] duplicated by [%u]=%q' $((i-1)) $((i)) "${COMPREPLY[i]}"
                 unset 'COMPREPLY[i]'
                 was_ok=0
             fi
         done
         ((was_ok)) && return
         COMPREPLY=("${COMPREPLY[@]}") ;
-        #__zclog "unique (#$_zc_num_items):$(printf '\n %q' "${COMPREPLY[@]}")"
+        #__zcdebug sortuniq -@1 'FINISH unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
     }
 
     __zc_gen() {
@@ -307,7 +473,8 @@ fi
 
 _zcomp() {
 
-    __zclog "Starting completion: args=($*) COMPREPLY=(${COMPREPLY[*]})"
+    __zcdebug zcomp -@0 'Starting completion: args=' -@$# [] "$@" \
+            -@0 ' COMPREPLY=' -@ [] "${COMPREPLY[@]}"
 
     local _zc_genfunc=$1
     local -a _zc_genargs=("${@:2}")
@@ -325,7 +492,11 @@ _zcomp() {
 
     (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_rows=-1 ))
 
-    __zc_gen || { __zclog "Early completion: COUNT=$_zc_num_items COMPREPLY+=(${COMPREPLY[*]})" ; return 0 ; }
+    __zc_gen || {
+        __zcdebug zcomp -@1 'Early completion: COUNT=%u' "$_zc_num_items" \
+                -@0 COMPREPLY= -@ [] "${COMPREPLY[@]}"
+        return 0
+    }
 
     _zc_xtrap=$( trap -p SIGINT SIGQUIT )
     trap _zc_key=SIGINT SIGINT
@@ -532,7 +703,7 @@ _zcomp() {
 
     # reset signal handlers
     trap - SIGINT SIGQUIT ; eval "$_zc_xtrap"
-    __zclog "Finished completion: COMPREPLY=(${COMPREPLY[*]})"
+    __zcdebug zcomp -@0 'Finished completion: COMPREPLY=' -@ [] "${COMPREPLY[@]}"
 }
 
 #
@@ -546,10 +717,16 @@ while
     IFS= \
     read -r _zc_line <&3
 do
-    __zclog "got [$_zc_line]"
+    __zcdebug zcomp -@1 'got [%q]' "$_zc_line"
 
-    [[ $_zc_line = 'complete '* ]] || { __zclog "completion line does not start with 'complete' [$_zc_line]" ; continue ; }
-    eval "_zc_cmdline=(${_zc_line#complete })" || { __zclog "unparsable completion line [$_zc_line]" ; continue ; }
+    [[ $_zc_line = 'complete '* ]] || {
+        __zcdebug zcomp -@1 "completion line does not start with 'complete' [%q]" "$_zc_line"
+        continue
+        }
+    eval "_zc_cmdline=(${_zc_line#complete })" || {
+        __zcdebug zcomp -@1 'unparsable completion line [%q]' "$_zc_line"
+        continue
+    }
     _zc_numargs=${#_zc_cmdline[@]}
     _zc_wrapargs=()
     _zc_genfunc=true
@@ -558,7 +735,7 @@ do
     do
         if [[ ${_zc_cmdline[_zc_argnum]} = -F && ${_zc_cmdline[_zc_argnum+1]} = __zcwrap_* ]]
         then
-            __zclog "Skipping '$_zc_line' which is already wrapped with ${_zc_cmdline[_zc_argnum+1]}"
+            __zcdebug zcomp -@2 "Skipping '%q' which is already wrapped with %q" "$_zc_line" "${_zc_cmdline[_zc_argnum+1]}"
             continue 2
         fi
         case ${_zc_cmdline[_zc_argnum]} in
