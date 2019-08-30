@@ -584,10 +584,10 @@ _zcomp2() {
     local -a _zc_compgen_args=( "${@:2:$1}" )  ; shift $(($1+1))
     local -a _zc_genargs=("${@}")
 
-    local _zc_button _zc_first=1 _zc_key _zc_redraw _zc_resize _zcJ
+    local _zc_button _zc_first=1 _zc_key _zc_redraw _zc_resize
     local -i _zc_col_offset _zc_col_width _zc_cur _zc_dcol _zc_mcol _zc_mrow
     local -i _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
-    local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_scrn_cols
+    local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_saved_col _zc_scrn_cols
     local -i _zc_scrn_rows _zc_max_item_width _zcj _zck _zcl
 
     (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_rows=-1 ))
@@ -717,7 +717,7 @@ _zcomp2() {
         case "$_zc_key" in
 
         ## Capture answer to initial "report cursor position" request
-        ($'\e['[?0-9]*\;*R) _zcJ=${_zc_key//[^;0-9]/} ; _zc_saved_row=${_zcJ%%\;*} ;; #_zc_saved_col=${_zcJ#*\;} ;;
+        ($'\e['[?0-9]*\;*R) _zc_key=${_zc_key//[^;0-9]/}\; _zc_saved_row=${_zc_key%%\;*} _zc_key=${_zc_key#*\;} _zc_saved_col=${_zc_key%%\;*} ;;
 
         ## Enter / Escape / SIGINT / SIGQUIT
         (' '|$'\r'|$'\n')   break ;;
