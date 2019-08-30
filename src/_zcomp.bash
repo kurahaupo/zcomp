@@ -769,10 +769,18 @@ _zcomp2() {
         ($'\e[D')           (( _zc_cur -= _zc_num_rows,
                                _zc_cur >= 0          || ( _zc_cur += _zc_num_rows*_zc_num_vcols-1,
                                                           _zc_cur < _zc_num_items || ( _zc_cur = _zc_num_items - 1 ) ) )) ;;
-        # home
-        ($'\e[H')           (( _zc_cur = 0 )) ;;
-        # end
-        ($'\e[F')           (( _zc_cur = _zc_num_items-1 )) ;;
+
+        # page-up - top of column, or prev column
+        ($'\e[5~')          (( _zc_cur -= ( _zc_cur > 0 ),
+                               _zc_cur -= _zc_cur % _zc_num_rows )) ;;
+        # page-down - bottom of column, or next column
+        ($'\e[6~')          (( _zc_cur++,
+                               _zc_cur += _zc_num_rows-1 - _zc_cur % _zc_num_rows,
+                               _zc_cur < _zc_num_items         || ( _zc_cur = _zc_num_items-1 ) )) ;;
+        # home - first item
+        ($'\e[1~'|$'\e[H')  (( _zc_cur = 0 )) ;;
+        # end - last item
+        ($'\e[4~'|$'\e[F')  (( _zc_cur = _zc_num_items-1 )) ;;
 
         # backspace
         ($'\x08'|$'\x7f')   ((COMP_POINT)) || break
