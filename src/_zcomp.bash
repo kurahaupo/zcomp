@@ -513,7 +513,7 @@ fi
         done
         __zcdebug gen -@1 'ZCGEN END ' -@ [] "${COMPREPLY[*]}"
         # Set return status so that _zcomp bails out if fewer than two options remain
-        (( _zc_num_items > 1 )) && _zc_redraw=1 _zc_resize=1
+        (( _zc_num_items > 1 )) && _zc_resize=1
     }
 
     __zc_get_term_size() {
@@ -584,7 +584,8 @@ _zcomp2() {
     local -a _zc_compgen_args=( "${@:2:$1}" )  ; shift $(($1+1))
     local -a _zc_genargs=("${@}")
 
-    local _zc_button _zc_first=1 _zc_key _zc_redraw _zc_resize
+    local _zc_button _zc_key
+    local -i _zc_first=1 _zc_redraw _zc_resize=1
     local -i _zc_col_offset _zc_col_width _zc_cur _zc_dcol _zc_mcol _zc_mrow
     local -i _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
     local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_saved_col _zc_scrn_cols
@@ -607,8 +608,10 @@ _zcomp2() {
     trap __zc_get_term_size SIGWINCH
 
     while
-        if ((_zc_resize || _zc_scrn_cols <= 0 || _zc_scrn_rows <= 0))
+        if ((_zc_resize || _zc_num_rows <= 0 || _zc_scrn_cols <= 0 || _zc_scrn_rows <= 0))
         then
+            (( _zc_resize )) ||
+                __zcerror -@ 'ERROR: _zc_num_rows is %s but _zc_resize is false' "$_zc_num_rows"
             # get screen dimensions
             (( ( _zc_scrn_cols = __zc_ForceCols ) || ( _zc_scrn_cols = COLUMNS ),
                ( _zc_scrn_rows = __zc_ForceRows ) || ( _zc_scrn_rows = LINES )   ))
@@ -618,12 +621,13 @@ _zcomp2() {
                 __zc_get_term_size &&
                     continue                    # go back and recompute based on $COLUMNS & $LINES
             fi
+            # compute tabular rows & columns, then trigger redraw
             (( _zc_scrn_rows <= __zc_MaxRows    || ( _zc_scrn_rows = __zc_MaxRows ),
                _zc_scrn_cols <= __zc_MaxCols    || ( _zc_scrn_cols = __zc_MaxCols ),
                _zc_col_width = _zc_max_item_width,
                _zc_col_width <= _zc_scrn_cols-__zc_ReserveCols || ( _zc_col_width = _zc_scrn_cols-__zc_ReserveCols ),
                _zc_num_dcols = (_zc_scrn_cols-__zc_ReserveCols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
-               _zc_num_dcols < _zc_num_items    || ( _zc_num_dcols = _zc_num_items ),
+               _zc_num_dcols <= _zc_num_items   || ( _zc_num_dcols = _zc_num_items ),
                _zc_num_dcols > 0                || ( _zc_num_dcols = 1 ),
                _zc_num_rows = 1 + (_zc_num_items-1) / _zc_num_dcols,
                _zc_num_rows < _zc_scrn_rows     || ( _zc_num_rows = _zc_scrn_rows-1 ),
@@ -775,7 +779,7 @@ _zcomp2() {
                             [[ -n ${COMP_WORDS[COMP_CWORD]} ]] || break
                             ((--COMP_POINT)) ; COMP_LINE="${COMP_LINE:0:COMP_POINT-1}${COMP_LINE:COMP_POINT}"
                             __zc_gen || break
-                            _zc_redraw=1 _zc_resize=1 ;;
+                            _zc_resize=1 ;;
 
         # extend current word with printable character
         ([!-~]*)
@@ -783,7 +787,7 @@ _zcomp2() {
                             ((++COMP_POINT))
                             COMP_WORDS[COMP_CWORD]+="$_zc_key"
                             __zc_gen || break
-                            _zc_redraw=1 _zc_resize=1 ;;
+                            _zc_resize=1 ;;
 
         esac
         (( _zc_cur < _zc_num_items || ( _zc_cur = _zc_num_items-1 ),
