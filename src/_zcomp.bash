@@ -289,8 +289,8 @@ _zcomp() {
             (( _zc_scrn_rows <= __zc_MaxRows || ( _zc_scrn_rows = __zc_MaxRows ) ))
             (( _zc_scrn_cols <= __zc_MaxCols || ( _zc_scrn_cols = __zc_MaxCols ) ))
             (( _zc_col_width = _zc_max_item_width,
-               _zc_col_width <= _zc_scrn_cols-3  || ( _zc_col_width = _zc_scrn_cols-3 ) ))
-            (( _zc_num_dcols = (_zc_scrn_cols-__zc_ReserveCols) / (_zc_col_width+2),
+               _zc_col_width <= _zc_scrn_cols-__zc_ReserveCols  || ( _zc_col_width = _zc_scrn_cols-__zc_ReserveCols ) ))
+            (( _zc_num_dcols = (_zc_scrn_cols-__zc_ReserveCols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
                _zc_num_dcols < _zc_num_items     || ( _zc_num_dcols = _zc_num_items ),
                _zc_num_dcols > 0                 || ( _zc_num_dcols = 1 ) ))
             (( _zc_num_rows = 1 + (_zc_num_items-1) / _zc_num_dcols,
@@ -325,7 +325,7 @@ _zcomp() {
             for (( _zcj = 0 ; _zcj < _zc_num_rows ; _zcj++ )) do
                 printf $'\r\n\e[K'
                 for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zc_num_items && _zcl < (_zc_num_dcols+_zc_col_offset)*_zc_num_rows ; _zcl += _zc_num_rows )) do
-                    printf " %s%-${_zc_col_width}.${_zc_col_width}s%s " "$__zc_cNormal" "${COMPREPLY[_zcl]}" "$__zc_cEnd"
+                    printf " %s%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s%s " "$__zc_cNormal" "${COMPREPLY[_zcl]}" "$__zc_cEnd"
                 done
             done
 
@@ -356,11 +356,11 @@ _zcomp() {
 
         printf "\e8\r\e[%uB\e[%uG %s%-${_zc_col_width}.${_zc_col_width}s%s \e[%uD" \
                 $(( _zc_row+1 )) \
-                $(( _zc_dcol*(_zc_col_width+2)+1 )) \
+                $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols)+1 )) \
                 "$__zc_cSelect" \
                 "${COMPREPLY[_zc_cur]}" \
                 "$__zc_cEnd" \
-                $(( _zc_col_width+1 ))
+                $(( _zc_col_width+__zc_PaddingCols-1 ))
 
         __zc_getkey     # returns value in ${_zc_key}
     do
@@ -385,7 +385,7 @@ _zcomp() {
                             #_zc_mcol=${__zc_CMap["\\${_zc_key:4:1}"]}
                             #_zc_mrow=${__zc_CMap["\\${_zc_key:5:1}"]}
                             (( _zcj = _zc_mrow - (_zc_saved_row-_zc_num_rows+1),
-                               _zck = _zc_mcol / (_zc_col_width+2) + _zc_col_offset,
+                               _zck = _zc_mcol / (_zc_col_width+__zc_PaddingCols) + _zc_col_offset,
                                _zcj >= 0 && _zcj < _zc_num_rows &&
                                _zck >= 0 && _zck < _zc_num_dcols &&
                                _zcj + _zc_num_rows*_zck < _zc_num_items &&
