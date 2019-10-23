@@ -362,108 +362,158 @@ fi
 
 ################################################################################
 
-    # __zc__swap is only used internally by __zc_sort (both versions)
-    __zc__swap() {
-        __zcdebug sortswap "swapping [$(($1))]=${COMPREPLY[$1]} [$(($2))]=${COMPREPLY[$2]}"
-        local temp=${COMPREPLY[$1]}
-                     COMPREPLY[$1]=${COMPREPLY[$2]}
-                                     COMPREPLY[$2]=$temp
-    }
+#   # eliminate duplicates in COMPREPLY[]
+#
+#   __zc_unique() {
+#       __zcdebug sortuniq -@1 'START unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
+#       local i has_dups
+#       for (( i=${#COMPREPLY[@]}-1, has_dups=0 ; i>=1 ; i-- )) do
+#           if [[ ${COMPREPLY[i-1]} = ${COMPREPLY[i]} ]]
+#           then
+#               __zcdebug sortuniq -@3 'merge [%u] duplicated by [%u]=%q' $((i-1)) $((i)) "${COMPREPLY[i]}"
+#               unset 'COMPREPLY[i]'
+#               has_dups=1
+#           fi
+#       done
+#       ((has_dups)) && COMPREPLY=("${COMPREPLY[@]}") ;
+#       __zcdebug sortuniq -@1 'FINISH unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
+#   }
 
-#   # non-recursive quicksort
+#   # sort COMPREPLY[] using a non-recursive quicksort, and then remove duplicates
 #
 #   __zc_sort() {
-#       # eliminate duplicates in COMPREPLY[]
 #       __zcdebug sortmain -@0 'pre-sort:' -@ '\n %q' "${COMPREPLY[@]}"
-#       local -a partitions
-#       local first last pv_pt pv_val
-#       # sort COMPREPLY[] using a non-recursive quicksort
-#       partitions=( -1 ${#COMPREPLY[@]} )
-#       for ((; ${#partitions[@]} > 1 ;)) do
-#           (( first=${partitions[@]: -2:1}+1,
-#              last=${partitions[@]: -1:1}-1 ))
+#       __zc__swap() {
+#           __zcdebug sortswap "swapping [$(($1))]=${COMPREPLY[$1]} [$(($2))]=${COMPREPLY[$2]}"
+#           local temp=${COMPREPLY[$1]}
+#                        COMPREPLY[$1]=${COMPREPLY[$2]}
+#                                        COMPREPLY[$2]=$temp
+#       }
+#       local -ai partitions=( -1 ${#COMPREPLY[@]} )
+#       local first last pivot_pt pivot_val npart=1
+#       for ((; npart > 0 ;)) do
+#           (( first= partitions[npart-1]+1,
+#              last = partitions[npart  ]-1 ))
 #           if (( last-first <= 1 ))
 #           then
-#               unset "partitions[${#partitions[@]}-1]"  # pop
+#               ((--npart)) # pop
 #               if (( last>first )) && [[ "${COMPREPLY[first]}" > "${COMPREPLY[last]}" ]]
 #               then
-#                   # Degenerate case: just two items in the partition; and they're
-#                   # out of order, so swap them.
+#                   # Just two items in the partition; and they're out of
+#                   # order, so swap them.
 #                   __zc__swap first last
 #               fi
 #           else
 #               # Partition list so that all before the pivot point are less than
 #               # the pivot value, and all at-or-after the pivot point are
 #               # greater-than-or-equal to the pivot value, so:
-#               # (1) scan past duplicates (not implemented yet)
+#               # (1) scan past duplicates
 #               # (2) pick a pivot value that isn't the lowest value
-#               pv_val=${COMPREPLY[first]}
-#               for (( pv_pt=last ; first<pv_pt ;--pv_pt)) do
-#                   [[ "$pv_val" = "${COMPREPLY[pv_pt]}" ]] || break
+#               pivot_val=${COMPREPLY[first]}
+#               for (( pivot_pt=last ; first<pivot_pt ;--pivot_pt )) do
+#                   [[ "$pivot_val" = "${COMPREPLY[pivot_pt]}" ]] || break
 #               done &&
-#                   continue    # all identical!!
-#               [[ "$pv_val" < "${COMPREPLY[pv_pt]}" ]] &&
-#                   pv_val=${COMPREPLY[pv_pt]}
-#               for (( pv_pt=last ; first<pv_pt ;)) do
-#                   [[ ${COMPREPLY[first]} < $pv_val ]] && { (( ++first )) ; continue ; }
-#                   [[ ${COMPREPLY[pv_pt]} < $pv_val ]] || { (( --pv_pt )) ; continue ; }
-#                   __zc__swap first pv_pt
+#                   continue    # all identical, so this partition is done!!
+#               [[ "$pivot_val" < "${COMPREPLY[pivot_pt]}" ]] &&
+#                   pivot_val=${COMPREPLY[pivot_pt]}
+#               for (( pivot_pt=last ; first<pivot_pt ;)) do
+#                   [[ ${COMPREPLY[first]} < $pivot_val ]] && { (( ++first )) ; continue ; }
+#                   [[ ${COMPREPLY[pivot_pt]} < $pivot_val ]] || { (( --pivot_pt )) ; continue ; }
+#                   __zc__swap first pivot_pt
 #               done
-#               partitions[${#partitions[@]}-1]=$pv_pt
-#               partitions[${#partitions[@]}]=$(( last+1 )) # push
+#               partitions[npart]=pivot_pt  # replace ToS
+#               partitions[npart++]=last+1  # push onto stack
 #           fi
 #       done
 #       __zcdebug sortmain -@0 'post-sort:' -@ '\n %q' "${COMPREPLY[@]}"
+#       __zc_unique
 #   }
 
-    # heapsort (top-down)
+#   # sort COMPREPLY[] using a top-down heapsort, and then remove duplicates
+#
+#   __zc_sort() {
+#       local i j k n=${#COMPREPLY[@]} t
+#       __zcdebug sortmain -@1 'pre-sort %u:' $n -@ '\n %q' "${COMPREPLY[@]}"
+#       for (( i=2 ; i<=n ; ++i )) do
+#           t=${COMPREPLY[i-1]}
+#           for (( j=i ; (k=j>>1)>=1 ; j=k )) do
+#               [[ $t > ${COMPREPLY[k-1]} ]] || break
+#               COMPREPLY[j-1]=${COMPREPLY[k-1]}
+#           done
+#           (( j!=i )) && COMPREPLY[j-1]=$t
+#       done
+#       __zcdebug sortmain -@1 'heaped  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
+#       for (( i=n ; i>0 ;)) do
+#           t=${COMPREPLY[i-1]}
+#           COMPREPLY[i-1]=${COMPREPLY[0]}
+#           ((--i))
+#           for (( j=1 ; (k=j<<1)<=i ; j=k )) do
+#               if  ((k<i)) &&
+#                   [[ ${COMPREPLY[k]} > $t ]]
+#               then
+#                   [[ ${COMPREPLY[k]} > ${COMPREPLY[k-1]} ]] && ((++k))
+#               else
+#                   [[ ${COMPREPLY[k-1]} > $t ]] || break
+#               fi
+#               COMPREPLY[j-1]=${COMPREPLY[k-1]}
+#           done
+#           COMPREPLY[j-1]=$t
+#       done
+#       __zcdebug sortmain -@1 'sorted  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
+#       __zc_unique
+#   }
 
+    # sort COMPREPLY[] using a bottom-up heapsort and simultaneously remove duplicates
+ 
     __zc_sort() {
-        local i j k n
-        __zcdebug sortmain -@1 'pre-sort %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
-        for (( i=2, n=${#COMPREPLY[@]} ; i<=n ; ++i )) do
+        local i j k n=${#COMPREPLY[@]} o t u
+        __zcdebug sortmain \
+            -@1 'sort.start %u items' $n \
+            -@ '\n %q' "${COMPREPLY[@]}"
+        for (( i=2 ; i<=n ; ++i )) do
+            t=${COMPREPLY[n-i]}
             for (( j=i ; (k=j>>1)>=1 ; j=k )) do
-                if   [[ ${COMPREPLY[j-1]} > ${COMPREPLY[k-1]} ]]
-                then
-                    __zc__swap j-1 k-1
-                fi
+                [[ $t < ${COMPREPLY[n-k]} ]] || break
+                COMPREPLY[n-j]=${COMPREPLY[n-k]}
             done
-        done
-        __zcdebug sortmain -@1 'heaped %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
-        for (( n=${#COMPREPLY[@]} ; n>0 ;)) do
-            __zc__swap 0 n-1
-            ((--n))
-            for (( j=1 ; (k=j<<1)<=n ; j=k )) do
-                if  if  ((k<n)) && [[ ${COMPREPLY[k]} > ${COMPREPLY[j-1]} ]]
-                    then
-                        [[ ${COMPREPLY[k]} > ${COMPREPLY[k-1]} ]] && ((++k))
-                        true
-                    else
-                        [[ ${COMPREPLY[k-1]} > ${COMPREPLY[j-1]} ]]
-                    fi
-                then
-                    __zc__swap j-1 k-1
-                fi
-            done
-        done
-        __zcdebug sortmain -@1 'sorted  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
-    }
-
-    __zc_unique() {
-        __zcdebug sortuniq -@1 'START unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
-        local i was_ok
-        for (( i=${#COMPREPLY[@]}-1, was_ok=1 ; i>=1 ; i-- )) do
-            if [[ ${COMPREPLY[i-1]} = ${COMPREPLY[i]} ]]
+            if (( j!=i ))
             then
-                __zcdebug sortuniq -@3 'merge [%u] duplicated by [%u]=%q' $((i-1)) $((i)) "${COMPREPLY[i]}"
-                unset 'COMPREPLY[i]'
-                was_ok=0
+                COMPREPLY[n-j]=$t
             fi
         done
-        ((was_ok)) && return
-        COMPREPLY=("${COMPREPLY[@]}") ;
-        __zcdebug sortuniq -@1 'FINISH unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
+        __zcdebug sortmain \
+            -@1 'sort.heaped  %u:' ${#COMPREPLY[@]} \
+            -@ '\n %q' "${COMPREPLY[@]}"
+        for (( i=n, o=0 ; i>0 ;)) do
+            t=${COMPREPLY[n-i]}
+            u=${COMPREPLY[n-1]}
+            ((--i))
+            for (( j=1 ; (k=j<<1)<=i ; j=k )) do
+                if  ((k<i)) &&
+                    [[ ${COMPREPLY[n-1-k]} < $t ]]
+                then
+                    [[ ${COMPREPLY[n-1-k]} < ${COMPREPLY[n-k]} ]] && ((++k))
+                else
+                    [[ ${COMPREPLY[n-k]} < $t ]] || break
+                fi
+                COMPREPLY[n-j]=${COMPREPLY[n-k]}
+            done
+            COMPREPLY[n-j]=$t
+            if ((o==0)) || [[ $u != "${COMPREPLY[o-1]}" ]]
+            then
+                COMPREPLY[o++]=$u
+            fi
+        done
+        for ((; o<n ; ++o )) do
+            unset "COMPREPLY[o]"
+        done
+        __zcdebug sortmain \
+            -@1 'sort.done  %u:' ${#COMPREPLY[@]} \
+            -@ '\n %q' "${COMPREPLY[@]}"
     }
+
+#   # If COMPREPLY is already sorted...
+#   __zc_sort() { :; }
 
     #
     # Add newline-delimited items from a string to the COMPREPLY array
@@ -520,8 +570,7 @@ fi
             __zc_genadd "$_zc_list"
         fi
 
-        __zc_sort       # sort COMPREPLY[]
-        __zc_unique     # remove dups
+        __zc_sort       # sort COMPREPLY[] and remove duplicates
         # count of items, used in lots of places
         (( _zc_num_items = ${#COMPREPLY[@]} ))
         # find maximum column width, in _zc_max_item_width
