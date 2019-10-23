@@ -86,6 +86,7 @@ declare -a _zc_atexit=()
 #
 
 __zc_has_localdash=1                # can do local -
+__zc_has_read_alarm_status=1        # read -t returns SIGALRM status on timeout
 __zc_has_varredir=1                 # can do {var}>... redirection
 __zc_has_xtracefd=1                 # set -o xtrace writes to >&$BASH_XTRACEFD
 __zc_read_n1=-N1                    # read -N is understood
@@ -97,11 +98,13 @@ then
     # Note [4.0]
     # Bash v4.0 added support for associative arrays (maps); for numeric
     # variables use ((mapname_$x)) instead of ((mapname[$x])).
-    # Bash v4.0 added support for fractional timeouts with « read -t ».
+    # Bash v4.0 added support for fractional timeouts with « read -t », and
+    # also sets the return code as if read had been killed by SIGALRM.
     # For older versions, use -t1 instead, which may cause user-observable
     # delays.
     __zc_has_xtracefd=0
     __zc_read_t01=-t1
+    __zc_has_read_alarm_status=0
 fi
 
 if (( __zc_BASH_VERSION < 4001000 ))
@@ -486,9 +489,19 @@ fi
     }
 
     __zc_getkey() {
+        local _zc_timeout=
+        ((_zc_redraw_needed && __zc_has_read_alarm_status)) && _zc_timeout=$__zc_read_t01
         local __zgk_chr
         IFS= \
-        read -rs -d '' $__zc_read_n1 _zc_key || return $?
+        read -rs -d '' $__zc_read_n1 $_zc_timeout _zc_key || {
+            local _zc_exitcode=$?
+            if ((_zc_exitcode & 128))
+            then
+                _zc_key=REDRAW
+                return 0
+            fi
+            return $_zc_exitcode
+        }
         while
             case "$_zc_key" in
             ('')  _zc_key=$'\n' ; break ;;          # compensate for bug in "read"
@@ -548,7 +561,7 @@ _zcomp2() {
     local -a _zc_genargs=("${@}")
 
     local _zc_button _zc_key
-    local -i _zc_first=1 _zc_redraw _zc_resize=1
+    local -i _zc_first=1 _zc_redraw_needed _zc_redraw_now _zc_resize=1
     local -i _zc_col_offset _zc_col_width _zc_cur _zc_dcol _zc_mcol _zc_mrow
     local -i _zc_last_item _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
     local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_saved_col _zc_scrn_cols
@@ -582,7 +595,7 @@ _zcomp2() {
             then
                 # resort to using tput and/or stty to get values
                 __zc_get_term_size &&
-                    continue                    # go back and recompute based on $COLUMNS & $LINES
+                    continue                    # go back and recompute based on new COLUMNS & LINES
             fi
             # compute tabular rows & columns, then trigger redraw
             (( _zc_scrn_rows <= __zc_MaxRows    || ( _zc_scrn_rows = __zc_MaxRows ),
@@ -597,7 +610,7 @@ _zcomp2() {
                _zc_num_rows > 0                 || ( _zc_num_rows = 1 ),
                _zc_num_vcols = 1 + _zc_last_item / _zc_num_rows,
                _zc_resize = 0,
-               _zc_redraw = 1 ))
+               _zc_redraw_needed = 1 ))
         fi
 
         (( _zc_row  = _zc_cur%_zc_num_rows,
@@ -608,16 +621,16 @@ _zcomp2() {
         then
             (( _zc_col_offset += _zc_dcol-_zc_num_dcols+1,
                _zc_dcol = _zc_vcol - _zc_col_offset,
-               _zc_redraw = 1 ))
+               _zc_redraw_needed = 1 ))
         fi
         if (( _zc_dcol < 0 ))
         then
             (( _zc_col_offset += _zc_dcol,
                _zc_dcol = _zc_vcol - _zc_col_offset,
-               _zc_redraw = 1 ))
+               _zc_redraw_needed = 1 ))
         fi
 
-        if ((_zc_redraw))
+        if ((_zc_redraw_now || _zc_redraw_needed && !__zc_has_read_alarm_status))
         then
             # save starting cursor position
             ((_zc_first)) && printf '\e7'
@@ -655,7 +668,8 @@ _zcomp2() {
             ((_zc_first)) && printf "\e8\e[%uB\e[%uA\e7" $_zc_num_rows $_zc_num_rows
 
             _zc_first=0
-            _zc_redraw=0
+            _zc_redraw_needed=0
+            _zc_redraw_now=0
         fi
 
         #
@@ -682,6 +696,12 @@ _zcomp2() {
         _zc_key=${_zc_key/';1~'/'~'}
 
         case "$_zc_key" in
+
+        # no keypress immediately available when _zc_redraw_needed
+        (REDRAW)            _zc_redraw_now=1 ;;
+
+        # ctrl-L to request redrawing
+        ($'\f')             _zc_redraw_needed=1 _zc_first=1 ;;
 
         ## Capture answer to initial "report cursor position" request
         ($'\e['[?0-9]*\;*R) _zc_key=${_zc_key//[^;0-9]/}\; _zc_saved_row=${_zc_key%%\;*} _zc_key=${_zc_key#*\;} _zc_saved_col=${_zc_key%%\;*} ;;
