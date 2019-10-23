@@ -467,8 +467,9 @@ fi
         fi
 
         __zc_sort       # sort COMPREPLY[] and remove duplicates
-        # count of items, used in lots of places
-        (( _zc_num_items = ${#COMPREPLY[@]} ))
+
+        # count of items & last item, used in lots of places
+        (( _zc_num_items = ${#COMPREPLY[@]}, _zc_last_item = _zc_num_items-1 ))
         # find maximum column width, in _zc_max_item_width
         for (( _zc_max_item_width = 0, _zcj = 0 ; _zcj < _zc_num_items ; ++_zcj )) do
             (( _zc_max_item_width > ${#COMPREPLY[_zcj]} || ( _zc_max_item_width = ${#COMPREPLY[_zcj]} ) ))
@@ -549,7 +550,7 @@ _zcomp2() {
     local _zc_button _zc_key
     local -i _zc_first=1 _zc_redraw _zc_resize=1
     local -i _zc_col_offset _zc_col_width _zc_cur _zc_dcol _zc_mcol _zc_mrow
-    local -i _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
+    local -i _zc_last_item _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
     local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_saved_col _zc_scrn_cols
     local -i _zc_scrn_rows _zc_max_item_width _zcj _zck _zcl
 
@@ -591,10 +592,10 @@ _zcomp2() {
                _zc_num_dcols = (_zc_scrn_cols-__zc_ReserveCols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
                _zc_num_dcols <= _zc_num_items   || ( _zc_num_dcols = _zc_num_items ),
                _zc_num_dcols > 0                || ( _zc_num_dcols = 1 ),
-               _zc_num_rows = 1 + (_zc_num_items-1) / _zc_num_dcols,
+               _zc_num_rows = 1 + _zc_last_item / _zc_num_dcols,
                _zc_num_rows < _zc_scrn_rows     || ( _zc_num_rows = _zc_scrn_rows-1 ),
                _zc_num_rows > 0                 || ( _zc_num_rows = 1 ),
-               _zc_num_vcols = 1 + (_zc_num_items-1) / _zc_num_rows,
+               _zc_num_vcols = 1 + _zc_last_item / _zc_num_rows,
                _zc_resize = 0,
                _zc_redraw = 1 ))
         fi
@@ -702,8 +703,9 @@ _zcomp2() {
                                _zck = _zc_mcol / (_zc_col_width+__zc_PaddingCols) + _zc_col_offset,
                                _zcj >= 0 && _zcj < _zc_num_rows &&
                                _zck >= 0 && _zck < _zc_num_dcols &&
-                               _zcj + _zc_num_rows*_zck < _zc_num_items &&
-                             ( _zc_cur = _zcj + _zc_num_rows*_zck ) ))
+                               _zcj += _zc_num_rows*_zck,
+                               _zcj < _zc_num_items &&
+                             ( _zc_cur = _zcj ) ))
                             :
                             [[ "$_zc_button" = ' ' ]] && break
                             ;;
@@ -712,21 +714,21 @@ _zcomp2() {
         ($'\e[1;2A')        (( _zc_cur -= _zc_cur % _zc_num_rows )) ;;
         # shift-down - bottom of column
         ($'\e[1;2B')        (( _zc_cur += _zc_num_rows-1 - _zc_cur % _zc_num_rows,
-                               _zc_cur < _zc_num_items         || ( _zc_cur = _zc_num_items-1 ) )) ;;
+                               _zc_cur <= _zc_last_item        || ( _zc_cur = _zc_last_item ) )) ;;
         # shift-right - right of row
-        ($'\e[1;2C')        (( _zc_cur += (_zc_cur / _zc_num_rows - 1 - (_zc_cur % _zc_num_rows > (_zc_num_items-1) % _zc_num_rows)) * _zc_num_rows )) ;;
+        ($'\e[1;2C')        (( _zc_cur += (_zc_cur / _zc_num_rows - 1 - (_zc_cur % _zc_num_rows > _zc_last_item % _zc_num_rows)) * _zc_num_rows )) ;;
         # shift-left - left of row
         ($'\e[1;2D')        (( _zc_cur %= _zc_num_rows )) ;;
 
         # up, shift-tab
         ($'\e[A'|$'\e[Z')   (( _zc_cur--,
-                               _zc_cur >= 0                  || ( _zc_cur = _zc_num_items-1 ) )) ;;
+                               _zc_cur >= 0                  || ( _zc_cur = _zc_last_item ) )) ;;
         # down, tab
         ($'\e[B'|$'\t')     (( _zc_cur++,
-                               _zc_cur < _zc_num_items         || ( _zc_cur = 0 ) )) ;;
+                               _zc_cur <= _zc_last_item || ( _zc_cur = 0 ) )) ;;
         # right
         ($'\e[C')           (( _zc_cur += _zc_num_rows,
-                               _zc_cur < _zc_num_items || ( _zc_cur = (_zc_cur+1) % _zc_num_rows ) )) ;;
+                               _zc_cur <= _zc_last_item || ( _zc_cur = (_zc_cur+1) % _zc_num_rows ) )) ;;
         # left
         ($'\e[D')           (( _zc_cur -= _zc_num_rows,
                                _zc_cur >= 0          || ( _zc_cur += _zc_num_rows*_zc_num_vcols-1,
@@ -738,11 +740,11 @@ _zcomp2() {
         # page-down - bottom of column, or next column
         ($'\e[6~')          (( _zc_cur++,
                                _zc_cur += _zc_num_rows-1 - _zc_cur % _zc_num_rows,
-                               _zc_cur < _zc_num_items         || ( _zc_cur = _zc_num_items-1 ) )) ;;
+                               _zc_cur < _zc_num_items         || ( _zc_cur = _zc_last_item ) )) ;;
         # home - first item
         ($'\e[1~'|$'\e[H')  (( _zc_cur = 0 )) ;;
         # end - last item
-        ($'\e[4~'|$'\e[F')  (( _zc_cur = _zc_num_items-1 )) ;;
+        ($'\e[4~'|$'\e[F')  (( _zc_cur = _zc_last_item )) ;;
 
         # backspace
         ($'\x08'|$'\x7f')   ((COMP_POINT)) || break
@@ -760,7 +762,7 @@ _zcomp2() {
                             _zc_resize=1 ;;
 
         esac
-        (( _zc_cur < _zc_num_items || ( _zc_cur = _zc_num_items-1 ),
+        (( _zc_cur <= _zc_last_item || ( _zc_cur = _zc_last_item ),
            _zc_cur >= 0 || ( _zc_cur = 0 ) ))
     done
 
