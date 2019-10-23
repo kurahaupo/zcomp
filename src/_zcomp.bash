@@ -52,39 +52,49 @@ __zc_DateTicks=1        # (for Bash ≤ 4.1) limit invocations of "date" to no
 #
 
 (( __zc_BASH_VERSION = BASH_VERSINFO[0] * 1000000 + BASH_VERSINFO[1] * 1000 + BASH_VERSINFO[2] ))
-(( __zc_BASH_VERSION < 3000000 )) && return
+(( 3001000 <= __zc_BASH_VERSION )) || return
 
 #
 # Compensate for shortcomings of earlier versions of Bash
 #
 
-__zc_has_xtracefd=1                 # set -o xtrace writes to >&$BASH_XTRACEFD
 __zc_has_varredir=1                 # can do {var}>... redirection
-__zc_read_t01=-t0.1                 # read -t can understand fractions of second
+__zc_has_xtracefd=1                 # set -o xtrace writes to >&$BASH_XTRACEFD
 __zc_read_n1=-N1                    # read -N is understood
-__zc_ts() { printf "%($*)T" -1 ; }  # no trailing newline
+__zc_read_t01=-t0.1                 # read -t can understand fractions of second
+__zc_ts() { printf "%($*)T" -1 ; }  # timestamp (without trailing newline)
 
 if (( __zc_BASH_VERSION < 4000000 ))
 then
-    # Bash v4.0 added support for fractional timeouts with "read -t". For older
-    # versions, use -t1 instead, which may cause user-observable delays.
+    # Note [4.0]
+    # Bash v4.0 added support for associative arrays (maps); for numeric
+    # variables use ((mapname_$x)) instead of ((mapname[$x])).
+    # Bash v4.0 added support for fractional timeouts with « read -t ».
+    # For older versions, use -t1 instead, which may cause user-observable
+    # delays.
     __zc_has_xtracefd=0
     __zc_read_t01=-t1
 fi
 
 if (( __zc_BASH_VERSION < 4001000 ))
 then
-    # Bash v4.x added support for "read -N$num". For older versions, use "-n"
-    # instead; note that this may potentially cause issues with some input.
+    # Note [4.1]
+    # Bash v4.1 added support for « read -N$num ».
+    # For older versions, use « -n$num » instead, which may cause issues if an
+    # unrecognized key sequence is received, followed by another key within the
+    # timeout period.
     __zc_read_n1=-n1
+    # Bash v4.1 added support for « {var}> » redirection.
+    # For older versions, use fixed numbers for filedescriptors.
     __zc_has_varredir=0
 fi
 
 if (( __zc_BASH_VERSION < 4002000 ))
 then
-    # Bash 4.2 added support for printf format specifier "%(...)T".
+    # Note [4.2]
+    # Bash 4.2 added support for printf format specifier « %(...)T ».
     # For older versions, replace __zc_ts with a version that calls the external
-    # "date" command instead, but at most once per __zc_DateTicks seconds
+    # « date » command instead, but at most once per __zc_DateTicks seconds
     # (based on when SECONDS changes), or whenever format ($*) changes.
     __zc_ts() {
         (( __zcpsec + __zc_DateTicks > SECONDS )) && [[ "$*" = "$__zcpfmt" ]] || {
@@ -228,7 +238,7 @@ fi
         COMPREPLY=()
         $_zc_genfunc
         IFS=$'\n'
-        (( ${#_zc_genargs[@]} )) && COMPREPLY=( "${COMPREPLY[@]}" $( compgen "${_zc_genargs[@]}" "${COMP_WORDS[COMP_CWORD]}" ) )
+        (( ${#_zc_genargs[@]} )) && COMPREPLY+=( $( compgen "${_zc_genargs[@]}" "${COMP_WORDS[COMP_CWORD]}" ) )
         __zc_sort       # sort COMPREPLY[]
         __zc_unique     # remove dups
         # count of items, used in lots of places
@@ -293,7 +303,7 @@ _zcomp() {
 
     (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_rows=-1 ))
 
-    __zc_gen || { __zclog "Early completion: COUNT=$_zc_num_items COMPREPLY=(${COMPREPLY[*]})" ; return 0 ; }
+    __zc_gen || { __zclog "Early completion: COUNT=$_zc_num_items COMPREPLY+=(${COMPREPLY[*]})" ; return 0 ; }
 
     _zc_xtrap=$( trap -p SIGINT SIGQUIT )
     trap _zc_key=SIGINT SIGINT
@@ -530,16 +540,16 @@ do
             ;;
         (-[o])
             # need "-o OPT" in both cmdline and genargs
-            _zc_wrapargs=( "${_zc_wrapargs[@]}" "${_zc_cmdline[@]:_zc_argnum:2}" )
+            _zc_wrapargs+=( "${_zc_cmdline[@]:_zc_argnum:2}" )
             ((++_zc_argnum))
             ;;
         (-[ACGW])
-            _zc_wrapargs=( "${_zc_wrapargs[@]}" "${_zc_cmdline[@]:_zc_argnum:2}" )
+            _zc_wrapargs+=( "${_zc_cmdline[@]:_zc_argnum:2}" )
             unset '_zc_cmdline[_zc_argnum]' '_zc_cmdline[_zc_argnum+1]'
             ((++_zc_argnum))
             ;;
         (-[a-z])
-            _zc_wrapargs=( "${_zc_wrapargs[@]}" "${_zc_cmdline[_zc_argnum]}" )
+            _zc_wrapargs+=( "${_zc_cmdline[_zc_argnum]}" )
             unset '_zc_cmdline[_zc_argnum]'
             ;;
         ([^-]*|-[DE])
@@ -592,8 +602,5 @@ return 0
 #  ;7   ctrl+alt
 #  ;8   ctrl+shift+alt
 #
-
-# Footnotes
-#   [1] Bash prior to v3.1 did not have array+=(...), so code array=("${array[@]}" ...) instead
 
 # vim: set fenc=utf8 :
