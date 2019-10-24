@@ -205,7 +205,7 @@ fi
         __zc_unique     # remove dups
         # count of items, used in lots of places
         (( _zc_num_items = ${#COMPREPLY[@]} ))
-        # find maximum column width, in ${_zc_max_item_width}
+        # find maximum column width, in _zc_max_item_width
         for (( _zc_max_item_width = 0, _zcj = 0 ; _zcj < _zc_num_items ; ++_zcj )) do
             (( _zc_max_item_width > ${#COMPREPLY[_zcj]} || ( _zc_max_item_width = ${#COMPREPLY[_zcj]} ) ))
         done
@@ -353,7 +353,7 @@ _zcomp() {
             _zc_redraw=false
         fi
 
-        printf "\e8\r\e[%uB\e[%uG %s%-${_zc_col_width}.${_zc_col_width}s%s \e[%uD" \
+        printf "\e8\r\e[%uB\e[%uG %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uD" \
                 $(( _zc_row+1 )) \
                 $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols)+1 )) \
                 "$__zc_cSelect" \
@@ -361,9 +361,9 @@ _zcomp() {
                 "$__zc_cEnd" \
                 $(( _zc_col_width+__zc_PaddingCols-1 ))
 
-        __zc_getkey     # returns value in ${_zc_key}
+        __zc_getkey     # returns value in _zc_key
     do
-        printf "\e[%uD %s%-${_zc_col_width}.${_zc_col_width}s%s \e[%uA\r" 1 "$__zc_cNormal" "${COMPREPLY[_zc_cur]}" "$__zc_cEnd" $(( _zc_row+1 ))
+        printf "\e[%uD %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uA\r" 1 "$__zc_cNormal" "${COMPREPLY[_zc_cur]}" "$__zc_cEnd" $(( _zc_row+1 ))
 
         case "$_zc_key" in
 
@@ -424,13 +424,14 @@ _zcomp() {
         # backspace
         ($'\x08'|$'\x7f')   ((COMP_POINT)) || break
                             [[ -n ${COMP_WORDS[COMP_CWORD]} ]] || break
-                            ((--COMP_POINT)) ; COMP_LINE="${COMP_LINE: 0:$COMP_POINT-1}${COMP_LINE: $COMP_POINT}"
+                            ((--COMP_POINT)) ; COMP_LINE="${COMP_LINE:0:COMP_POINT-1}${COMP_LINE:COMP_POINT}"
                             __zc_gen || break
                             _zc_redraw=true _zc_resize=true ;;
 
         # extend current word with printable character
         ([!-~]*)
-                            COMP_LINE="${COMP_LINE: 0:$COMP_POINT}$_zc_key${COMP_LINE: $COMP_POINT}" ; ((++COMP_POINT))
+                            COMP_LINE="${COMP_LINE:0:COMP_POINT}$_zc_key${COMP_LINE:COMP_POINT}"
+                            ((++COMP_POINT))
                             COMP_WORDS[COMP_CWORD]+="$_zc_key"
                             __zc_gen || break
                             _zc_redraw=true _zc_resize=true ;;
@@ -458,7 +459,7 @@ _zcomp() {
     printf $'\e8'
 
     # reset signal handlers
-    trap - SIGINT SIGQUIT ; eval "${_zc_xtrap}"
+    trap - SIGINT SIGQUIT ; eval "$_zc_xtrap"
     __zclog "Finished completion: COMPREPLY=(${COMPREPLY[*]})"
 }
 
