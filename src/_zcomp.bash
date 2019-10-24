@@ -28,35 +28,78 @@ __zc_MaxRows=223        # } report rows or columns higher than 223=0xff-0x20
 __zc_MouseTrack=1       # arbitrary user preference (numeric true/false)
 __zc_PaddingCols=2      # leave gaps between columns
 __zc_ReserveCols=2      # don't use rightmost columns in terminal, to avoid auto-right-margin causing problems
+__zc_Resizeable=1       # terminal is in a window that can be resized
 
 ################################################################################
 #
-# Note: This script only works with ANSI-style terminals and terminal
-# emulators, such as Xterm; it can cope with resizable terminal windows.
+# Note [ANSI]
+# This script only works with ANSI-style terminals and terminal emulators, such
+# as Xterm; it can cope with resizable terminal windows.
 #
 # It also requires either "tput -S" (and a version that understands "rows" &
 # "lines", so probably any POSIX compliant version), or "stty size" (which
 # probably means only GNU's "stty").
 #
+# TODO: add support for non-ANSI terminals, maybe, someday.
+#
+
+[[ "$( tput cup 9 6 ; tput clear )" = $'\e[10;7H\e['*'J' ]] || return   # doesn't seem to be an ANSI terminal
 
 case $TERM in
 (ansi*\
 |cons*\
-|cygwin*\
 |linux*\
-|rxvt*\
 |vt???*\
-|wsvt*\
-)               __zc_resizeable=0 ;;    # fixed-size terminal
-(*[vwxy]term*\
+)               __zc_MouseTrack=0
+                __zc_Resizeable=0 ;;    # console
+
+([Pp][Uu][Tt][Tt][Yy]*\
 |screen*\
-)               __zc_resizeable=1 ;;    # resizable terminal
-(*)             return ;;               # not supported on unknown terminal types
+)               __zc_MouseTrack=0 ;;    # window terminal, but don't trust mouse tracking
+
+(*[vwxy]term*\
+|cygwin*\
+|rxvt*\
+|wsvt*\
+)               : ;;                    # resizable terminal, with mouse
+
+(*)             __zc_MouseTrack=0
+                __zc_Resizeable=0 ;;    # assume fixed-size terminal, without mouse
 esac
 
-__zc_cNormal=$'\e[33;40;0m'     # show list in yellow-on-black
-__zc_cSelect=$'\e[37;40;1m'     # show highlit item in bright-white-on-black
-__zc_cEnd=$'\e[39;49;0m'        # go back to "normal" colours
+__zc_cKeyUp=$( tput kcuu1 )     # or '\e[A' or '\eOA'
+__zc_cKeyDn=$( tput kcud1 )     # or '\e[B' or '\eOB'
+__zc_cKeyRt=$( tput kcuf1 )     # or '\e[C' or '\eOC'
+__zc_cKeyLf=$( tput kcub1 )     # or '\e[D' or '\eOD'
+__zc_cKeyHm=$( tput khome )     # or '\e[H' or '\eOH'
+__zc_cKeyEn=$( tput kend )      # or '\e[F' or '\eOF'
+__zc_cKeyPU=$( tput kpp )       # or '\e[5~'
+__zc_cKeyPD=$( tput knp )       # or '\e[6~'
+
+declare -a __zc_cMoveU ; __zc_cMoveU() { local rows=$(($1)) ; printf %s "${__zc_cMoveU[rows]=$( ((rows)) && tput cuu $rows )}" ; }   # '\e[%uA'
+declare -a __zc_cMoveD ; __zc_cMoveD() { local rows=$(($1)) ; printf %s "${__zc_cMoveD[rows]=$( ((rows)) && tput cud $rows )}" ; }   # '\e[%uB'
+declare -a __zc_cMoveR ; __zc_cMoveR() { local cols=$(($1)) ; printf %s "${__zc_cMoveR[cols]=$( ((cols)) && tput cuf $cols )}" ; }   # '\e[%uC'
+declare -a __zc_cMoveL ; __zc_cMoveL() { local cols=$(($1)) ; printf %s "${__zc_cMoveL[cols]=$( ((cols)) && tput cub $cols )}" ; }   # '\e[%uD'
+
+__zc_cSaveCursor=$( tput sc )   # or '\e7'
+__zc_cRestCursor=$( tput rc )   # or '\e8'
+__zc_cClearEoL=$( tput el )     # or '\e[K'
+
+__zc_cNormal=$( tput dim        # show list in dim yellow-on-black $'\e[22;33;40m'
+                tput setaf 3
+                tput setab 0 )
+__zc_cSelect=$( tput bold       # show highlit item in bright-white-on-black $'\e[1;37;40m'
+                tput setaf 3
+                tput setab 0 )
+__zc_cEnd=$( tput sgr0 )        # go back to "normal" colours $'\e[39;49;21m'
+
+__zc_cNormal=${__zc_cNormal//$'m\e['/';'}
+__zc_cSelect=${__zc_cSelect//$'m\e['/';'}
+
+# no tput equivalents
+__zc_cReportCursor=$'\e[?6n'
+__zc_cStartTrackingMouse=$'\e[?1003h'
+__zc_cStopTrackingMouse=$'\e[?1003l'
 
 ################################################################################
 #
@@ -513,7 +556,7 @@ fi
             case "$_zc_key" in
             ('')  _zc_key=$'\n' ; break ;;          # compensate for bug in "read"
             ( $'\e[M'??? ) break ;;                 # mouse report
-            ( $'\e' | $'\e[' | $'\e['[?O] | $'\e['*[\;0-9] | $'\e[M'* ) ;;
+            ( $'\e' | $'\e'[\[O] | $'\e['[?O] | $'\e['*[\;0-9] | $'\e[M'* ) ;;
             ( [$'\xc0'-\$'xfe'] \
             | [$'\xe0'-\$'xfe'][$'\x80'-$'\xbf'] \
             | [$'\xf0'-\$'xfe']?[$'\x80'-$'\xbf'] \
@@ -640,13 +683,13 @@ _zcomp2() {
         if ((_zc_redraw_now || _zc_redraw_needed && !__zc_has_read_alarm_status || _zc_prev_num_rows != _zc_num_rows || _zc_first))
         then
             # save starting cursor position
-            ((_zc_first)) && printf '\e7'
+            ((_zc_first)) && printf "$__zc_cSaveCursor"
 
             # display the menu
             for (( _zcj = 0 ; _zcj < _zc_num_rows ; _zcj++ )) do
-                printf '\r\n\e[K'
+                printf "\r\n$__zc_cClearEoL"
                 for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zc_num_items && _zcl < (_zc_num_dcols+_zc_col_offset)*_zc_num_rows ; _zcl += _zc_num_rows )) do
-                    printf " %s%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s%s " "$__zc_cNormal" "${COMPREPLY[_zcl]}" "$__zc_cEnd"
+                    printf " $__zc_cNormal%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s$__zc_cEnd " "${COMPREPLY[_zcl]}"
                 done
             done
 
@@ -654,9 +697,9 @@ _zcomp2() {
             then
                 # handle menu shrinkage: erase extra lines, then move cursor back up
                 for ((; _zcj < _zc_prev_num_rows ; _zcj++ )) do
-                    printf '\r\n\e[K'
+                    printf "\r\n$__zc_cClearEoL"
                 done
-                printf '\e[%uA' $((_zc_prev_num_rows-_zc_num_rows))
+                __zc_cMoveU $((_zc_prev_num_rows-_zc_num_rows))
             elif ((_zc_prev_num_rows < _zc_num_rows))
             then
                 # handle menu expansion (including initially)
@@ -665,7 +708,10 @@ _zcomp2() {
                 #  - move $_zc_num_rows down (truncated to bottom line)
                 #  - move $_zc_num_rows up
                 #  - save new cursor position
-                printf '\e8\e[%uB\e[%uA\e7' $_zc_num_rows $_zc_num_rows
+                printf "$__zc_cRestCursor"
+                __zc_cMoveD $_zc_num_rows
+                __zc_cMoveU $_zc_num_rows
+                printf "$__zc_cSaveCursor"
             fi
             (( _zc_prev_num_rows = _zc_num_rows ))
 
@@ -673,9 +719,9 @@ _zcomp2() {
                 # Ask Xterm to report current cursor position; this will cause a
                 # "current position" «CSI?row;colR» response that will be read in the
                 # main loop
-                printf '\e[?6n'
+                printf "$__zc_cReportCursor"
                 # Turn on mouse tracking
-                printf '\e[?1003h'
+                printf "$__zc_cStartTrackingMouse"
             }
 
             _zc_first=0
@@ -686,22 +732,28 @@ _zcomp2() {
         #
         # Highlight currently selected item:
         #
-        # restore cursor position, left column, down (_zc_row+1), column
-        # (_zc_dcol*(_zc_col_width+2)+1), left (_zc_col_width+1)
+        # restore cursor position, move down by (_zc_row+1), move to left margin,
+        # move right by (_zc_dcol*(_zc_col_width+__zc_PaddingCols)+1), show current item, move
+        # left by (_zc_col_width+__zc_PaddingCols-1)
         #
-        printf "\e8\r\e[%uB\e[%uG %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uD" \
-                $(( _zc_row+1 )) \
-                $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols)+1 )) \
-                "$__zc_cSelect" \
-                "${COMPREPLY[_zc_cur]}" \
-                "$__zc_cEnd" \
-                $(( _zc_col_width+__zc_PaddingCols-1 ))
+        printf "$__zc_cRestCursor"
+        __zc_cMoveD $(( _zc_row+1 ))
+        printf '\r'
+        __zc_cMoveR $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols) ))
+        printf " $__zc_cSelect%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s$__zc_cEnd " "${COMPREPLY[_zc_cur]}"
+        __zc_cMoveL $(( _zc_col_width+__zc_PaddingCols-1 ))
 
         __zc_getkey $((_zc_redraw_needed && __zc_has_read_alarm_status))    # returns value in _zc_key
     do
         __zcinfo -@ 'Got key %q' "$_zc_key"
 
-        printf "\e[%uD %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uA\r" 1 "$__zc_cNormal" "${COMPREPLY[_zc_cur]}" "$__zc_cEnd" $(( _zc_row+1 ))
+        #
+        # Redraw currently selected item without highlighting
+        #
+        __zc_cMoveL 1
+        printf " $__zc_cNormal%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s$__zc_cEnd " "${COMPREPLY[_zc_cur]}"
+        __zc_cMoveU $(( _zc_row+1 ))
+        printf '\r'
 
         # Terminals don't usually produce the ;1~ variant, but just make sure
         _zc_key=${_zc_key/';1~'/'~'}
@@ -752,34 +804,43 @@ _zcomp2() {
         ($'\e[1;2D')        (( _zc_cur %= _zc_num_rows )) ;;
 
         # up, shift-tab
-        ($'\e'[\[O][AZ])    (( _zc_cur--,
-                               _zc_cur >= 0                  || ( _zc_cur = _zc_last_item ) )) ;;
+        ($__zc_cKeyUp|$'\e'[\[O][AZ])
+                            (( _zc_cur--,
+                               _zc_cur >= 0             || ( _zc_cur = _zc_last_item ) )) ;;
         # down, tab
-        ($'\e'[\[O]B|$'\t')
+        ($__zc_cKeyDn|$'\e'[\[O]B|$'\t')
                             (( _zc_cur++,
                                _zc_cur <= _zc_last_item || ( _zc_cur = 0 ) )) ;;
         # right
-        ($'\e'[\[O]C)
+        ($__zc_cKeyRt|$'\e'[\[O]C)
                             (( _zc_cur += _zc_num_rows,
                                _zc_cur <= _zc_last_item || ( _zc_cur = (_zc_cur+1) % _zc_num_rows ) )) ;;
         # left
-        ($'\e'[\[O]D)
-                            (( _zc_cur -= _zc_num_rows,
-                               _zc_cur >= 0          || ( _zc_cur += _zc_num_rows*_zc_num_vcols-1,
-                                                          _zc_cur < _zc_num_items || ( _zc_cur = _zc_num_items - 1 ) ) )) ;;
+        ($__zc_cKeyLf|$'\e'[\[O]D)
+                            (( _zc_cur < _zc_num_rows && (
+                                    _zc_cur = (_zc_cur          + _zc_num_rows
+                                            - (_zc_num_items+1) % _zc_num_rows)
+                                                                % _zc_num_rows - 1
+                                            + (_zc_num_items+1) ),
+                               _zc_cur -= _zc_num_rows,
+                               _zc_cur >= 0 && _zc_cur < _zc_num_items
+                            )) || __zcerror -@ 'ERROR: key-left produced out-of-range item number %u; expecting between 0 and %u\n' $_zc_cur $_zc_last_item
+                            ;;
 
         # page-up - top of column, or prev column
-        ($'\e[5~')          (( _zc_cur -= ( _zc_cur > 0 ),
+        ($__zc_cKeyPU|$'\e[5~')
+                            (( _zc_cur -= ( _zc_cur > 0 ),
                                _zc_cur -= _zc_cur % _zc_num_rows )) ;;
         # page-down - bottom of column, or next column
-        ($'\e[6~')          (( _zc_cur++,
+        ($__zc_cKeyPD|$'\e[6~')
+                            (( _zc_cur++,
                                _zc_cur += _zc_num_rows-1 - _zc_cur % _zc_num_rows,
                                _zc_cur < _zc_num_items         || ( _zc_cur = _zc_last_item ) )) ;;
         # home - first item
-        ($'\e[1~'|$'\e'[\[O]H)
+        ($__zc_cKeyHm|$'\e[1~'|$'\e'[\[O]H)
                             (( _zc_cur = 0 )) ;;
         # end - last item
-        ($'\e[4~'|$'\e'[\[O]F)
+        ($__zc_cKeyEn|$'\e[4~'|$'\e'[\[O]F)
                             (( _zc_cur = _zc_last_item )) ;;
 
         # backspace
@@ -809,15 +870,15 @@ _zcomp2() {
 
     ((__zc_MouseTrack)) && {
         # Turn off mouse tracking
-        printf '\e[?1003l'
+        printf "$__zc_cStopTrackingMouse"
     }
 
     for (( _zcj=0 ; _zcj<_zc_num_rows ; _zcj++ )) do
-        printf '\n\e[2K'
+        printf "\r\n$__zc_cClearEoL"
     done
 
     # reset cursor position
-    printf '\e8'
+    printf "$__zc_cRestCursor"
 
     __zcdebug zcomp -@0 'Finished completion: COMPREPLY=' -@ [] "${COMPREPLY[@]}"
 }
