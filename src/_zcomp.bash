@@ -132,12 +132,19 @@ fi
 #
 # logging & debugging output
 #
-# We reserve fd#7 for debug output; by default it's just duped from stderr.
+# We reserve fd#7 for debug output; discard until we decide what to do with it.
+#
+# __zclog does not affect the current $? exit status, so you can write
+#
+#   fubar || __zclog ... || exit
 #
 
-exec 7>&2
-__zclog() { {
-    __zc_ts +%F,%T
+exec 7>/dev/null
+
+__zclog() {
+    local _zc_r=$?      # be transparent for exit code
+    [[ -e /dev/fd/7 || ! -d /dev/fd ]] && { # avoid complaints about bad filedescriptors
+    __zc_ts %F,%T
     printf ' [%u] ' $$
     local -i argc=$# n_shift=$# newline=1
     local fmt n
@@ -145,7 +152,7 @@ __zclog() { {
         n=${1#-?}
         shift
         case $n in
-        @|'')       n_shift=$# ;;
+        @|'')       n_shift=$# argc=$# ;;
         «)          for ((n_shift=1;n_shift<=$#;++n_shift)) do [[ ${!n_shift} = » ]] && break ; done ; argc=n_shift-1 ;;
         n)          newline=0 ; continue ;;
         *[!0-9]*)   break ;;
@@ -170,7 +177,7 @@ __zclog() { {
             fi
             printf "$post" ;;
         *)
-            printf "$fmt" "${@:1:n}" ;;
+            printf "$fmt" "${@:1:argc}" ;;
         esac
 
         # discard
@@ -178,142 +185,162 @@ __zclog() { {
     done
     printf '%s' "$*"
     ((newline)) && printf '\n'
-} >&7 ; }
+  } >&7 2>&1
+    return $_zc_r
+}
 
 #
-# output level:
+# Usage:
+#   __zc_set_debug [ level=LEVEL ] [ xtrace=XMODE ] [ file=FILENAME | nofile ] [ OPTIONS ... ]
+# Unspecified options remain unchanged
+#
+# level=LEVEL
 #   0   silent
-#   1   errors
-#   2   warnings
-#   3   info
-#   4   verbose
-#   5   debug
+#   1   enable errors
+#   2   enable warnings & errors
+#   3   enable info, warnings & errors (info = report all user requests)
+#   4   enable verbose, info, warnings & errors (verbose = report all mutating actions)
+#   5   enable tracing, verbose, info, warnings & errors (tracing = explain choices)
+#   6   enable debug as per mask, tracing, verbose, info, warnings & errors
+#   7   enable everything (all debugging, overriding the selection mask, and all other options)
 #
-# debug level/type:
+# (The xtrace output from the completion menu code is insanely long, and
+# usually not useful to the rest of what's happening in the shell, so suppress
+# it by default, but allow it to be turned on so that the completion menu code
+# itself can be debugged.)
 #
-#   0   turn off xtrace inside completion (and restore on return; default, WiP)
-#   1   don't turn off xtrace inside completion
-#   2   turn on xtrace inside completion (and restore on return)
-#   4   merge xtrace & zclog output
+# xtrace=XMODE
+#   off         turn off xtrace inside completion (and restore on return; default)
+#   inherit     don't turn off xtrace inside completion
+#   on          turn on xtrace inside completion (and restore on return)
 #
-# If bash was invoked with "-x" (meaning, it's on when this file is loaded),
-# set the debug level to 2.
+# log-to-fd
+# log-to-file
+# log-to-xtrace     merge xtrace & __zclog output
+#
+# xtrace-to-log     merge xtrace & __zclog output inside completion menu
+# xtrace-split      don't merge xtrace & __zclog
 #
 # If an alternative logfile is given, __zclog output will go there when inside a
 # completion function; xtrace output will also go there while inside completion,
 # if the shell version supports BASH_XTRACEFD.
-#
-# Use «__zc_set_debug $level $filename» to change this setting.
 #
 # Note:  {var}> redirections were added in version 4.1 - avoid them.
 #   git blame parse.y | grep REDIR_
 #   ⇒ 0001803 2011-11-21 20:51:19 -0500 Bash-4.1 distribution source
 #
 
-declare -i __zc_nextmask=0 __zc_mask=0 __zc_loglevel=3
-declare -Ai __zc_masknames
-__zc_masknames=( [all]='~0' )
+declare -i __zc_nextmask=0 __zc_mask=0 __zc_maskname_all='~0'
+declare -i __zc_loglevel=3 __zc_xtrace_mode=-1 __zc_xtrace_to_log=0 __zc_log_to_xtrace=0
+declare __zc_log_to_fd=2 __zc_log_to_file=
 
 __zc_set_debug() {
-    local _zc_debug=$1 i j k l
-    __zc_debug_file=${2:-}
-    (($#>=3)) && __zc_loglevel=$3
+    local _zc_debug=0 j k
+    local -a _zc_level_names=( silent errors warnings info verbose tracing debug everything )
+    local -a _zc_xtrace_modes=( off inherit on )
 
-    for (( i=4 ; i <= $# ; ++i )) do
-        j=${!i} k=${j#[!a-z]} j=${j%"$k"}
-
-        if [[ $k = @(0|[1-9]*([0-9])|0x*([0-9a-f])) ]]
-        then l=$((k))
-        else l=${__zc_masknames[$k]:=$(( 1 << __zc_nextmask++ ))}
-        fi
-
+    for j do
         case $j in
-        +)      (( __zc_mask |=  l )) ;;
-        -)      (( __zc_mask &=~ l )) ;;
-        =|'')   (( __zc_mask  =  l )) ;;
+        level=*)        __zc_loglevel=${j#*=} ;;
+        xtrace=inherit) __zc_xtrace_mode=0 ;;
+        xtrace=on)      __zc_xtrace_mode=1 ;;
+        xtrace=off)     __zc_xtrace_mode=-1 ;;
+        xtrace-to-log)  __zc_log_to_xtrace=0 __zc_xtrace_to_log=1 ;;
+        xtrace-split)   __zc_xtrace_to_log=0 ;;
+        log-to-xtrace)  __zc_log_to_xtrace=1 __zc_log_to_fd=  __zc_log_to_file= __zc_xtrace_to_log=0 ;;
+        log-to-fd=*)    __zc_log_to_xtrace=0 __zc_log_to_fd=${j#*=} __zc_log_to_file= ;;
+        log-to-file=-|log-to-stderr)
+                        __zc_log_to_xtrace=0 __zc_log_to_fd=2 __zc_log_to_file=        ;;
+        log-to-file=*)  __zc_log_to_xtrace=0 __zc_log_to_fd=  __zc_log_to_file=${j#*=} ;;
+        xtrace*)        printf >&2 '__zc_set_debug: invalid "xtrace" option "%s"\n' "$j" ;;
+        log-to*)        printf >&2 '__zc_set_debug: invalid "log-to" option "%s"\n' "$j" ;;
+        [!-+=_a-z0-9]*|?*[!_a-z0-9]*)
+            printf >&2 '__zc_set_debug: invalid option "%s"\n' "$j" ;;
+        *)
+            k=${j#[!a-z]} j=${j%"$k"}
+            if [[ $k = @(0|[1-9]*([0-9])|0x*([0-9a-f])) ]]
+            then (( k = k ))
+            else (( __zc_maskname_$k || ( __zc_maskname_$k = 1 << __zc_nextmask++ ),
+                    k = __zc_maskname_$k )) # see version note [4.0]
+            fi
+            case $j in
+            +)      (( __zc_mask |=  k )) ;;
+            -)      (( __zc_mask &=~ k )) ;;
+            =|'')   (( __zc_mask  =  k )) ;;
+            esac ;;
         esac
     done
 
-    # Default to stderr
-    exec 7>&2
-
-    if [[ -n $__zc_debug_file && $__zc_debug_file != - ]]
+    if [[ -n $__zc_log_to_fd ]]
+    then
+        # Use a log fd, if specified
+        exec 7>&$__zc_log_to_fd
+    elif [[ -n $__zc_log_to_file ]]
     then
         # Use a logfile, if specified
-        exec 7>> "$__zc_debug_file" || return
-    elif (( __zc_has_xtracefd && _zc_debug & 4  ))
+        exec 7>> "$__zc_log_to_file" || return
+        {
+        __zc_ts
+        printf ' [%u] ' $$
+        printf ' LOGGING STARTED\n'
+        printf '\tlevel=%d (%s)\n' "$__zc_loglevel" "${_zc_level_names[__zc_loglevel]:-unknown}"
+        printf '\txtrace=%d (%s)\n' "$__zc_xtrace_mode" "${_zc_xtrace_modes[__zc_xtrace_mode+1]:-unknown}"
+        printf '\tlog-to-'
+        [[ $__zc_log_to_fd ]] && printf 'fd=%d ' "$__zc_log_to_fd"
+        [[ $__zc_log_to_file ]] && printf 'file=%s ' "$__zc_log_to_file"
+        (( __zc_log_to_xtrace )) && printf 'xtrace '
+        printf '\n'
+        printf '\tmask=%#x\n' "$__zc_mask"
+        } >&7
+    elif (( __zc_log_to_xtrace ))
     then
-        # Merging logging & debugging output (debug&4 is set), and have support
-        # for BASH_XTRACEFD
-        if [[ -n BASH_XTRACEFD ]]
-        then
-            # Use BASH_XTRACEFD if it's already set
-            exec 7>&$BASH_XTRACEFD
-        else
-            # If not already set, arrange to use it
-            BASH_XTRACEFD=7
-        fi
-    fi
-
-    (( __zc_xtrace_mode = (_zc_debug & 3 ^ 1)-1 ))  # -1=hide; 0=inherit; +1,+2=show
-    (( _zc_debug & 8 && ( __zc_mask = ~0 ) ))    #
-    (( _zc_level = _zc_debug >> 4 ))
-
-    __zc_loaderfinish() { :; }
-
-    if (( __zc_has_xtracefd ))
+        # Use current BASH_XTRACEFD, or failing that stderr.
+        exec 7>&${BASH_XTRACEFD:-2}
+    elif (( __zc_loglevel > 0 || __zc_xtrace_to_log ))
     then
-        # Only if BASH_XTRACEFD is enabled, and only if {var}> redirections are enabled
-        if ((_zc_debug & 4 && __zc_xtrace_mode > 0))
-        then
-            # merge xtrace with zclog
-            BASH_XTRACEFD=7
-        else
-            # shouldn't be any output
-            BASH_XTRACEFD=
-            __zc_mask=0
-        fi
-    fi
-
-    if ((__zc_xtrace_mode >= 0 || _zc_level > 0 || __zc_mask ))
-    then
-        __zclog -@ 'Starting loading, pid=%u tty=%s\n' $$ $(tty)
-        __zc_loaderfinish() {
-            __zclog -@ 'Finished loading, pid=%u tty=%s ex=%#x' $$ "${TTY:=$(tty)}" $?
-            BASH_XTRACEFD=
-            set $__zc_dashx
-        }
+        # Fall back to stderr if either non-silent or xtrace-to-log
+        exec 7>&2
     else
+        # No logging expected; discard any that occurs
         exec 7>/dev/null
-        __zc_loaderfinish() { :; }
     fi
 
-    if ((_zc_level > 0)) ; then __zcerror() { __zclog "$@" ; } ; else __zcerror() { : ; }; fi
-    if ((_zc_level > 1)) ; then __zcwarn()  { __zclog "$@" ; } ; else __zcwarn()  { : ; }; fi
-    if ((_zc_level > 2)) ; then __zcinfo()  { __zclog "$@" ; } ; else __zcinfo()  { : ; }; fi
-    if ((_zc_level > 3)) ; then __zctrace() { __zclog "$@" ; } ; else __zctrace() { : ; }; fi
-    if ((_zc_level > 4)) ; then __zctrace() { __zclog "$@" ; } ; else __zctrace() { : ; }; fi
-    if ((_zc_level > 5)) ; then __zcdebug() { local _zc_m=${__zc_masknames[$1]:=$(( 1 << __zc_nextmask++ ))}
-                                              (( __zc_mask & _zc_m )) || return 0
-                                              shift
-                                              __zclog "$@" ; } ; else __zcdebug() { : ; }; fi
-
-    #
-    # Inside each generated wrapper function, redirect stderr (and xtracefd, if
-    # different) to fd#7 when calling zcomp, so that xtrace for completion goes
-    # with other debugging output.
-    #
-    __zc_fd_remap='2>&7'
-    (( __zc_xtrace_mode > 0 && __zc_has_xtracefd && BASH_XTRACEFD > 2 && BASH_XTRACEFD != 7 )) && __zc_fd_remap+=" $BASH_XTRACEFD>&7"
+    if (( __zc_loglevel > 0 )) ; then __zcerror()   { __zclog "$@" ; } ; else __zcerror()   { return $? ; } ; fi
+#   if (( __zc_loglevel > 1 )) ; then __zcwarn()    { __zclog "$@" ; } ; else __zcwarn()    { return $? ; } ; fi
+    if (( __zc_loglevel > 2 )) ; then __zcinfo()    { __zclog "$@" ; } ; else __zcinfo()    { return $? ; } ; fi
+#   if (( __zc_loglevel > 3 )) ; then __zcverbose() { __zclog "$@" ; } ; else __zcverbose() { return $? ; } ; fi
+#   if (( __zc_loglevel > 4 )) ; then __zctrace()   { __zclog "$@" ; } ; else __zctrace()   { return $? ; } ; fi
+    if (( __zc_loglevel > 5 )) ; then
+        __zcdebug() {
+            (( __zc_mask & __zc_maskname_$1 )) || return 1
+            shift
+            __zclog "$@"
+            return 0
+        }
+        if (( __zc_loglevel > 6 )) ; then ((__zc_mask=~0)) ; fi
+                                                                         else __zcdebug()   { return 1 ; } ; fi
 }
+
+#
+# If bash was invoked with "-x" (so xtrace is on when this file is loaded),
+# turn on all possible debugging; otherwise turn all debugging off.
+#
 
 if [[ $- = *x* ]]
 then
     __zc_dashx=-x
-    __zc_set_debug 2 $HOME/tmp/_zcomp.log +all
+    # Assume that if set -x is on when you load zcomp, it's because you want to
+    # debug zcomp itself.
+    __zc_set_debug log-to-file="$HOME/tmp/_zcomp.$$.log" xtrace-to-log level=7 +all
+    __zclog -@ 'Starting zcomp loading, pid=%u tty=%s\n' $$ "${TTY:=$(tty)}"
+    _zc_loaderfinish() {
+        __zclog -@ 'Finished loading zcomp, pid=%u tty=%s ex=%#x' $$ "${TTY:=$(tty)}" $?
+        set -x
+    }
+    _zc_atexit+=( _zc_loaderfinish )
 else
     __zc_dashx=+x
-    __zc_set_debug 0 - -all
+    __zc_set_debug level=0 log-to-xtrace -all
 fi
 
 ################################################################################
@@ -473,36 +500,62 @@ fi
         return 0
     }
 
+#
+# _zcomp part 1: ensure that xtrace and traps are properly restored, regardless
+# of how part 2 returns
+#
 _zcomp() {
+    local _zc_savedash=$-
+    set +x
 
+    if (( __zc_xtrace_mode > 0 )) ||
+     { (( __zc_xtrace_mode == 0 )) && [[ $_zc_savedash = *x* ]] ;}
+    then
+        (( __zc_xtrace_to_log )) && local BASH_XTRACEFD=7
+        set -x
+    fi
+
+    local _zc_xtrap=$( trap -p SIGINT SIGQUIT SIGWINCH )
+
+    _zcomp2 "$@" 2>&7
+
+    # revert signal handlers
+    eval "$_zc_xtrap"
+
+    set ${-:++$-} ${_zc_savedash:+-$_zc_savedash}
+}
+
+#
+# _zcomp part 2: generate completion list, show menu, accept user selection
+#
+_zcomp2() {
     __zcdebug zcomp -@0 'Starting completion: args=' -@$# [] "$@" \
             -@0 ' COMPREPLY=' -@ [] "${COMPREPLY[@]}"
 
     local _zc_genfunc=$1
     local -a _zc_genargs=("${@:2}")
 
-    local _zc_button _zc_first=1 _zc_key _zc_redraw _zc_resize _zcJ _zc_xtrap
+    local _zc_button _zc_first=1 _zc_key _zc_redraw _zc_resize _zcJ
     local -i _zc_col_offset _zc_col_width _zc_cur _zc_dcol _zc_mcol _zc_mrow
     local -i _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
     local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_scrn_cols
     local -i _zc_scrn_rows _zc_max_item_width _zcj _zck _zcl
 
-    : initial COMP_TYPE=$COMP_TYPE COMPREPLY: "${COMPREPLY[@]}"
-
-    # Bail out if not wanting immediate completion
-    [[ "${COMP_TYPE:-9}" = 9 ]] || return 0
-
     (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_rows=-1 ))
 
-    __zc_gen || {
-        __zcdebug zcomp -@1 'Early completion: COUNT=%u' "$_zc_num_items" \
+    __zc_gen && [[ "${COMP_TYPE:-9}" = 9 ]] || {
+        # Avoid showing menu if either
+        # (a) insufficient items, or
+        # (b) non-immediate COMP_TYPE
+        __zcdebug zcomp \
+                -@2 'Early completion: TYPE=%s COUNT=%u' "$COMP_TYPE" "$_zc_num_items" \
                 -@0 COMPREPLY= -@ [] "${COMPREPLY[@]}"
         return 0
     }
 
-    _zc_xtrap=$( trap -p SIGINT SIGQUIT )
     trap _zc_key=SIGINT SIGINT
     trap _zc_key=SIGQUIT SIGQUIT
+    trap __zc_get_term_size SIGWINCH
 
     while
         if ((_zc_resize))
@@ -513,7 +566,6 @@ _zcomp() {
             if ! (( _zc_scrn_cols && _zc_scrn_rows ))
             then
                 # resort to using tput and/or stty to get values
-                trap __zc_get_term_size WINCH   # only call stty again if the window size changes
                 __zc_get_term_size &&
                     continue                    # go back and recompute based on $COLUMNS & $LINES
             fi
@@ -605,6 +657,8 @@ _zcomp() {
 
         __zc_getkey     # returns value in _zc_key
     do
+        __zcinfo -@ 'Got key %q' "$_zc_key"
+
         printf "\e[%uD %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uA\r" 1 "$__zc_cNormal" "${COMPREPLY[_zc_cur]}" "$__zc_cEnd" $(( _zc_row+1 ))
 
         # Terminals don't usually produce the ;1~ variant, but just make sure
@@ -703,8 +757,6 @@ _zcomp() {
     # reset cursor position
     printf '\e8'
 
-    # reset signal handlers
-    trap - SIGINT SIGQUIT ; eval "$_zc_xtrap"
     __zcdebug zcomp -@0 'Finished completion: COMPREPLY=' -@ [] "${COMPREPLY[@]}"
 }
 
@@ -781,8 +833,6 @@ done 3< <( complete -p )
 
 #__zcwrap__E() { _zcomp : -c ; }
 #complete -F __zcwrap__E -E
-
-__zc_loaderfinish
 
 for _zc_f in "${_zc_atexit[@]}"
 do
