@@ -918,6 +918,9 @@ complete() {
             return $_zc_rc
         }
     else
+        # Work around bug in « complete -p » that fails to show the empty arg
+        (( ${#_zc_specargs[@]} == 0 && _zc_WrapExistingCompletions )) && _zc_specargs=('')
+
         local _zc_wrapper="${_zc_genfunc[*]} ${_zc_gencmd[*]} ${_zc_compgen_args[*]}"
         _zc_wrapper="__zcwrap_${_zc_wrapper//[^_0-9a-zA-Z.-]/___}"
         __zcdebug wrap -@0 "Making wrapped completion " -@@ [] complete "${_zc_orig_args[@]}"
