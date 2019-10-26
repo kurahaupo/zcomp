@@ -60,6 +60,13 @@ __zc_cEnd=$'\e[39;49;0m'        # go back to "normal" colours
 
 ################################################################################
 #
+# stackable at-exit
+#
+
+declare -a _zc_atexit=()
+
+################################################################################
+#
 # Check for supported shells (currently only Bash >= 3.0)
 #
 # BASH_VERSION can be avoided, because BASH_VERSINFO was added to Bash v2.0
@@ -597,6 +604,12 @@ done 3< <( complete -p )
 #complete -F __zcwrap__E -E
 
 __zc_loaderfinish
+
+for _zc_f in "${_zc_atexit[@]}"
+do
+    "$_zc_f"
+    unset -f "$_zc_f"
+done
 
 return 0
 
