@@ -257,7 +257,6 @@ _zcomp() {
     local -i _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
     local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_scrn_cols
     local -i _zc_scrn_rows _zc_max_item_width _zcj _zck _zcl
-    local -a _zcW
 
     : initial COMP_TYPE=$COMP_TYPE COMPREPLY: "${COMPREPLY[@]}"
 
