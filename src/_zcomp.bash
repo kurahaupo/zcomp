@@ -67,7 +67,13 @@ declare -a _zc_atexit=()
 
 ################################################################################
 #
-# Check for supported shells (currently only Bash >= 3.0)
+# Check for supported shells (currently only Bash >= 3.1)
+#
+# Bash v3.1 added « VAR+=TEXT » and « ARRAY+=(ITEM) » which we use copiously.
+# With some effort these could be avoided, but incrementally building a list
+# using « array=("${array[@]}" item) » (or using « set -- "$@" item ») takes
+# quadratic time, causing noticeable delays even for lists as small as 100
+# items, and intolerable delays on lists of 1000 items.
 #
 # BASH_VERSION can be avoided, because BASH_VERSINFO was added to Bash v2.0
 #
@@ -79,6 +85,7 @@ declare -a _zc_atexit=()
 # Compensate for shortcomings of earlier versions of Bash
 #
 
+__zc_has_localdash=1                # can do local -
 __zc_has_varredir=1                 # can do {var}>... redirection
 __zc_has_xtracefd=1                 # set -o xtrace writes to >&$BASH_XTRACEFD
 __zc_read_n1=-N1                    # read -N is understood
@@ -126,6 +133,16 @@ then
         }
         printf '%s' "$__zcdate"
     }
+fi
+
+if (( __zc_BASH_VERSION < 4004000 ))
+then
+    # Note [4.4]
+    # Bash 4.4 added support for « local - »
+    # For older versions of bash, use « local _zc_savedash=$- » and then
+    # « set ${-:++$-} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
+    #
+    __zc_has_localdash=0
 fi
 
 ################################################################################
