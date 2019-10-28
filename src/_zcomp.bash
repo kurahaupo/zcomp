@@ -85,23 +85,29 @@ declare -a _zc_atexit=()
 # Compensate for shortcomings of earlier versions of Bash
 #
 
-__zc_has_localdash=1                # can do local -
-__zc_has_read_alarm_status=1        # read -t returns SIGALRM status on timeout
-__zc_has_varredir=1                 # can do {var}>... redirection
-__zc_has_xtracefd=1                 # set -o xtrace writes to >&$BASH_XTRACEFD
-__zc_read_n1=-N1                    # read -N is understood
-__zc_read_t01=-t0.1                 # read -t can understand fractions of second
+__zc_has_localdash=1                # can do « local - »
+__zc_has_read_alarm_status=1        # « read -t$seconds » returns SIGALRM status on timeout
+__zc_has_varredir=1                 # can do « {var}> ... » redirection
+__zc_has_xtracefd=1                 # « set -o xtrace » output as if « 2>&$BASH_XTRACEFD »
+__zc_read_n1=-N1                    # « read -N$bytes » is understood
+__zc_read_t01=-t0.1                 # « read -t$seconds » can understand fractions
 __zc_ts() { printf "%($*)T" -1 ; }  # timestamp (without trailing newline)
 
 if (( __zc_BASH_VERSION < 4000000 ))
 then
     # Note [4.0]
+    # Bash v4.0 added the ability to separate xtrace output from stderr, by
+    # redirecting it to fd « $BASH_XTRACEFD ». (It's harmless to set this
+    # variable in earlier versions, but xtrace output will be comingled with
+    # stderr.)
     # Bash v4.0 added support for associative arrays (maps); for numeric
-    # variables use ((mapname_$x)) instead of ((mapname[$x])).
-    # Bash v4.0 added support for fractional timeouts with « read -t », and
-    # also sets the return code as if read had been killed by SIGALRM.
-    # For older versions, use -t1 instead, which may cause user-observable
-    # delays.
+    # variables use « ((mapname_$x)) » instead of « ((mapname[$x])) ».
+    # Bash v4.0 added support for fractional timeouts with « read -t$seconds »,
+    # and also sets the return code as if read had been killed by SIGALRM.
+    # For older versions, use « read -t1 » instead, which will cause
+    # user-observable delays when pressing ESC, and will increase the
+    # likelihood of oddities if an incomplete sequence is received followed by
+    # another key within the second.
     __zc_has_xtracefd=0
     __zc_read_t01=-t1
     __zc_has_read_alarm_status=0
@@ -112,9 +118,9 @@ then
     # Note [4.1]
     # Bash v4.1 added support for « read -N$num ».
     # For older versions, use « read -n$num » instead, which may cause issues
-    # if the tty's eol2 is set to some character that's embedded within a key's
-    # escape sequence. (In particular this may apply when eol2 is set to ESC by
-    # readline in vi mode.)
+    # if the tty's eol or eol2 is set to some character that's embedded within
+    # a key's escape sequence. (In particular this may apply when eol2 is set
+    # to ESC by readline in vi mode.)
     __zc_read_n1=-n1
     # Bash v4.1 added support for « {var}> » redirection.
     # For older versions, use fixed numbers for filedescriptors.
@@ -125,9 +131,10 @@ if (( __zc_BASH_VERSION < 4002000 ))
 then
     # Note [4.2]
     # Bash 4.2 added support for printf format specifier « %(...)T ».
-    # For older versions, replace __zc_ts with a version that calls the external
-    # « date » command instead, but at most once per __zc_DateTicks seconds
-    # (based on when SECONDS changes), or whenever format ($*) changes.
+    # For older versions, replace __zc_ts with a version that calls the
+    # external « date » command instead, but at most once per __zc_DateTicks
+    # seconds (based on when SECONDS changes), or whenever the format («$*»)
+    # changes.
     __zc_ts() {
         (( __zcpsec + __zc_DateTicks > SECONDS )) && [[ "$*" = "$__zcpfmt" ]] || {
             (( __zcpsec = SECONDS ))
@@ -816,7 +823,7 @@ _zcomp2() {
 #
 # If invoked with '-p' or '-r' or '-F __zcwrap_*', or with no args at all, just
 # pass through to the builtin.  Otherwise synthesize a wrapper function, and
-# call builtin complete with -F to call it.
+# call « builtin complete -F » with it.
 #
 # The -C and -F options have to be handled directly by the wrapper, because
 # they aren't usable via compgen. According to the bash man page:
@@ -826,7 +833,7 @@ _zcomp2() {
 #       useful values."
 #
 # Items that should only take effect after _zcomp returns should be handed
-# to complete:
+# to « builtin complete »:
 #       -o filenames
 #       -o noquote
 #       -o nospace
@@ -947,9 +954,8 @@ complete() {
 #
 # Install the _zcomp handler over the top of every previously-installed handler.
 #
-# Having defined "complete" as a function, simply re-read the output of
-# "complete -p", which has always (since bash version 2.04) output in a format
-# intended to be read in again.
+# After defining « complete » as a function, simply re-read the output of
+# « complete -p », which is in a format intended to be read in again.
 #
 
 (( __zc_HaveReloadedAllCompletions++ )) ||
@@ -968,35 +974,44 @@ unset "${!_zc_@}"
 
 return 0
 
-#($'\e[M '??)               ;;  # 0  mouse button 1 down
-#($'\e[M!'??)               ;;  # 1  mouse button 2 down
-#($'\e[M"'??)               ;;  # 2  mouse button 3 down
-#($'\e[M@'??)               ;;  # 32 mouse button 1 drag
-#($'\e[MA'??)               ;;  # 33 mouse button 2 drag
-#($'\e[MV'??)               ;;  # 54 mouse button 3 drag
-#($'\e[M#'??|$'\e[M\x81'??) ;;  # 3,97 mouse movement or button release
+#
+# After sending \e[?1003h and before sending \e[?1003l, mouse events are
+# presented as \e[M followed by 3 bytes, F+32, X+32, Y+32.
+#
+# F encodes:
+#   (( F & 64 )) indicates use of a scroll wheel, in which case
+#       (( F & 1 )) indicates down (otherwise up)
+#   otherwise:
+#       (( F & 3 )) button down (0, 1 or 2) or button release (3)
+#       (( F & 32 )) indicates movement without changing button state
+#
+# F == 35 (first byte 'C') indicates that the mouse has moved while no button
+# was held down, whereas F == 3 (first byte '#') means a button has been
+# released, but does not tell you which one. If multiple buttons are held down
+# together, each release will be reported as F==3.
+#
+# X,Y denotes the character cell the mouse cursor is over; 0,0 is top-left.
+#
 
 #
-# home  \e[1~
+# up    \eOA  \e[A
+# down  \eOB  \e[B
+# right \eOC  \e[C
+# left  \eOD  \e[D
+#
+# home  \e[1~ \e[H
 # ins   \e[2~
 # del   \e[3~
-# end   \e[4~
+# end   \e[4~ \e[F
 # pgup  \e[5~
 # pgdn  \e[6~
 #
-# ;n modifier has n = 1 plus the sum of
-#   1 for shift
-#   2 for alt
-#   4 for ctrl
-# so
-#  ;1   plain (always omitted, but defined with value 1 to follow the general rule about an omitted values always defaulting to 1)
-#  ;2   shift
-#  ;3   ctrl
-#  ;4   ctrl+shift
-#  ;5   alt
-#  ;6   shift+alt
-#  ;7   ctrl+alt
-#  ;8   ctrl+shift+alt
+# menu  \e[29~
+#
+# The sequences ending in ~ can take a ;n modifier with n between 2 & 8, where:
+#   (( n - 1 & 1 )) indicates Shift
+#   (( n - 1 & 2 )) indicates Alt
+#   (( n - 1 & 4 )) indicates Ctrl
 #
 
 # vim: set fenc=utf8 :
