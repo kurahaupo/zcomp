@@ -769,9 +769,12 @@ _zcomp2() {
         ## Capture answer to initial "report cursor position" request
         ($'\e['[?0-9]*\;*R) _zc_key=${_zc_key//[^;0-9]/}\; _zc_saved_row=${_zc_key%%\;*} _zc_key=${_zc_key#*\;} _zc_saved_col=${_zc_key%%\;*} ;;
 
-        ## Enter / Escape / SIGINT / SIGQUIT
+        ## Space / Enter to confirm item
         (' '|$'\r'|$'\n')   break ;;
-        ($'\e'|SIG*) _zc_cur=-1 ; break ;;
+        ## Escape / Menu / SIGINT / SIGQUIT to abort
+        ($'\e'|$'\e[29~'|SIG*)
+                            _zc_cur=-1
+                            break ;;
 
         ## Mouse tracking
         ($'\e[M`'??)        (( _zc_col_offset > 0                             && --_zc_col_offset )) ;;  # 64 mouse scroll up
