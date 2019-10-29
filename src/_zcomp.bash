@@ -362,107 +362,6 @@ fi
 
 ################################################################################
 
-#   # eliminate duplicates in COMPREPLY[]
-#
-#   __zc_unique() {
-#       __zcdebug sortuniq -@1 'START unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
-#       local i has_dups
-#       for (( i=${#COMPREPLY[@]}-1, has_dups=0 ; i>=1 ; i-- )) do
-#           if [[ ${COMPREPLY[i-1]} = ${COMPREPLY[i]} ]]
-#           then
-#               __zcdebug sortuniq -@3 'merge [%u] duplicated by [%u]=%q' $((i-1)) $((i)) "${COMPREPLY[i]}"
-#               unset 'COMPREPLY[i]'
-#               has_dups=1
-#           fi
-#       done
-#       ((has_dups)) && COMPREPLY=("${COMPREPLY[@]}") ;
-#       __zcdebug sortuniq -@1 'FINISH unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
-#   }
-
-#   # sort COMPREPLY[] using a non-recursive quicksort, and then remove duplicates
-#
-#   __zc_sort() {
-#       __zcdebug sortmain -@0 'pre-sort:' -@ '\n %q' "${COMPREPLY[@]}"
-#       __zc__swap() {
-#           __zcdebug sortswap "swapping [$(($1))]=${COMPREPLY[$1]} [$(($2))]=${COMPREPLY[$2]}"
-#           local temp=${COMPREPLY[$1]}
-#                        COMPREPLY[$1]=${COMPREPLY[$2]}
-#                                        COMPREPLY[$2]=$temp
-#       }
-#       local -ai partitions=( -1 ${#COMPREPLY[@]} )
-#       local first last pivot_pt pivot_val npart=1
-#       for ((; npart > 0 ;)) do
-#           (( first= partitions[npart-1]+1,
-#              last = partitions[npart  ]-1 ))
-#           if (( last-first <= 1 ))
-#           then
-#               ((--npart)) # pop
-#               if (( last>first )) && [[ "${COMPREPLY[first]}" > "${COMPREPLY[last]}" ]]
-#               then
-#                   # Just two items in the partition; and they're out of
-#                   # order, so swap them.
-#                   __zc__swap first last
-#               fi
-#           else
-#               # Partition list so that all before the pivot point are less than
-#               # the pivot value, and all at-or-after the pivot point are
-#               # greater-than-or-equal to the pivot value, so:
-#               # (1) scan past duplicates
-#               # (2) pick a pivot value that isn't the lowest value
-#               pivot_val=${COMPREPLY[first]}
-#               for (( pivot_pt=last ; first<pivot_pt ;--pivot_pt )) do
-#                   [[ "$pivot_val" = "${COMPREPLY[pivot_pt]}" ]] || break
-#               done &&
-#                   continue    # all identical, so this partition is done!!
-#               [[ "$pivot_val" < "${COMPREPLY[pivot_pt]}" ]] &&
-#                   pivot_val=${COMPREPLY[pivot_pt]}
-#               for (( pivot_pt=last ; first<pivot_pt ;)) do
-#                   [[ ${COMPREPLY[first]} < $pivot_val ]] && { (( ++first )) ; continue ; }
-#                   [[ ${COMPREPLY[pivot_pt]} < $pivot_val ]] || { (( --pivot_pt )) ; continue ; }
-#                   __zc__swap first pivot_pt
-#               done
-#               partitions[npart]=pivot_pt  # replace ToS
-#               partitions[npart++]=last+1  # push onto stack
-#           fi
-#       done
-#       __zcdebug sortmain -@0 'post-sort:' -@ '\n %q' "${COMPREPLY[@]}"
-#       __zc_unique
-#   }
-
-#   # sort COMPREPLY[] using a top-down heapsort, and then remove duplicates
-#
-#   __zc_sort() {
-#       local i j k n=${#COMPREPLY[@]} t
-#       __zcdebug sortmain -@1 'pre-sort %u:' $n -@ '\n %q' "${COMPREPLY[@]}"
-#       for (( i=2 ; i<=n ; ++i )) do
-#           t=${COMPREPLY[i-1]}
-#           for (( j=i ; (k=j>>1)>=1 ; j=k )) do
-#               [[ $t > ${COMPREPLY[k-1]} ]] || break
-#               COMPREPLY[j-1]=${COMPREPLY[k-1]}
-#           done
-#           (( j!=i )) && COMPREPLY[j-1]=$t
-#       done
-#       __zcdebug sortmain -@1 'heaped  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
-#       for (( i=n ; i>0 ;)) do
-#           t=${COMPREPLY[i-1]}
-#           COMPREPLY[i-1]=${COMPREPLY[0]}
-#           ((--i))
-#           for (( j=1 ; (k=j<<1)<=i ; j=k )) do
-#               if  ((k<i)) &&
-#                   [[ ${COMPREPLY[k]} > $t ]]
-#               then
-#                   [[ ${COMPREPLY[k]} > ${COMPREPLY[k-1]} ]] && ((++k))
-#               else
-#                   [[ ${COMPREPLY[k-1]} > $t ]] || break
-#               fi
-#               COMPREPLY[j-1]=${COMPREPLY[k-1]}
-#           done
-#           COMPREPLY[j-1]=$t
-#       done
-#       __zcdebug sortmain -@1 'sorted  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
-#       __zc_unique
-#   }
-
     # sort COMPREPLY[] using a bottom-up heapsort and simultaneously remove duplicates
  
     __zc_sort() {
@@ -511,9 +410,6 @@ fi
             -@1 'sort.done  %u:' ${#COMPREPLY[@]} \
             -@ '\n %q' "${COMPREPLY[@]}"
     }
-
-#   # If COMPREPLY is already sorted...
-#   __zc_sort() { :; }
 
     #
     # Add newline-delimited items from a string to the COMPREPLY array
