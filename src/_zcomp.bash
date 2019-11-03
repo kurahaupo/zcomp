@@ -774,8 +774,8 @@ _zcomp2() {
         ($'\e'|SIG*) _zc_cur=-1 ; break ;;
 
         ## Mouse tracking
-        ($'\e[M`'*)         (( _zc_col_offset > 0                             && --_zc_col_offset )) ;;  # 64 mouse scroll up
-        ($'\e[Ma'*)         (( _zc_col_offset < _zc_num_vcols-_zc_num_dcols-1 && ++_zc_col_offset )) ;;  # 65 mouse scroll down
+        ($'\e[M`'??)        (( _zc_col_offset > 0                             && --_zc_col_offset )) ;;  # 64 mouse scroll up
+        ($'\e[Ma'??)        (( _zc_col_offset < _zc_num_vcols-_zc_num_dcols-1 && ++_zc_col_offset )) ;;  # 65 mouse scroll down
         ($'\e[M'???)        _zc_button="${_zc_key:3:1}"
                             printf -v _zc_mcol '%u-32&255' "'${_zc_key:4:1}"
                             printf -v _zc_mrow '%u-32&255' "'${_zc_key:5:1}"
