@@ -20,8 +20,8 @@ __zc_DateTicks=1        # (for Bash ≤ 4.1) limit invocations of "date" to no
                         # more often than once every this many seconds
 __zc_ForceCols=0        # set non-zero to override terminal height
 __zc_ForceRows=0        # set non-zero to override terminal width
-__zc_MaxCols=160        # won't work higher than 223 with mouse-tracking
-__zc_MaxRows=24         # arbitrary user choice
+__zc_MaxCols=223        # won't work higher than 223 with mouse-tracking
+__zc_MaxRows=223        # arbitrary user choice
 __zc_MouseTrack=1       # arbitrary user choice (0=false, ~0=true)
 __zc_PaddingCols=2      # leave gaps between columns
 __zc_ReserveCols=2      # don't use rightmost columns in terminal
