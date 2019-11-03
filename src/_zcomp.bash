@@ -490,7 +490,7 @@ fi
 
     __zc_getkey() {
         local _zc_timeout=
-        ((_zc_redraw_needed && __zc_has_read_alarm_status)) && _zc_timeout=$__zc_read_t01
+        (($1)) && _zc_timeout=$__zc_read_t01
         local __zgk_chr
         IFS= \
         read -rs -d '' $__zc_read_n1 $_zc_timeout _zc_key || {
@@ -630,11 +630,12 @@ _zcomp2() {
                _zc_redraw_needed = 1 ))
         fi
 
-        if ((_zc_redraw_now || _zc_redraw_needed && !__zc_has_read_alarm_status))
+        if ((_zc_redraw_now || _zc_redraw_needed && !__zc_has_read_alarm_status || _zc_prev_num_rows != _zc_num_rows || _zc_first))
         then
             # save starting cursor position
             ((_zc_first)) && printf '\e7'
 
+            # display the menu
             for (( _zcj = 0 ; _zcj < _zc_num_rows ; _zcj++ )) do
                 printf '\r\n\e[K'
                 for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zc_num_items && _zcl < (_zc_num_dcols+_zc_col_offset)*_zc_num_rows ; _zcl += _zc_num_rows )) do
@@ -642,12 +643,22 @@ _zcomp2() {
                 done
             done
 
-            for ((; _zcj < _zc_prev_num_rows ; _zcj++ )) do
-                printf '\r\n\e[K'
-            done
-            # this can't happen "first time" (because _zc_prev_num_rows is -1)
             if (( _zc_prev_num_rows > _zc_num_rows ))
-            then printf "\e[%uA" $((_zc_prev_num_rows-_zc_num_rows))
+            then
+                # handle menu shrinkage: erase extra lines, then move cursor back up
+                for ((; _zcj < _zc_prev_num_rows ; _zcj++ )) do
+                    printf '\r\n\e[K'
+                done
+                printf '\e[%uA' $((_zc_prev_num_rows-_zc_num_rows))
+            elif ((_zc_prev_num_rows < _zc_num_rows))
+            then
+                # handle menu expansion (including initially)
+                # re-save cursor position after compensating for scrolling:
+                #  - go to previous saved cursor position
+                #  - move $_zc_num_rows down (truncated to bottom line)
+                #  - move $_zc_num_rows up
+                #  - save new cursor position
+                printf '\e8\e[%uB\e[%uA\e7' $_zc_num_rows $_zc_num_rows
             fi
             (( _zc_prev_num_rows = _zc_num_rows ))
 
@@ -659,13 +670,6 @@ _zcomp2() {
                 # Turn on mouse tracking
                 printf '\e[?1003h'
             }
-
-            # re-save cursor position after any scrolling:
-            #  - go to previous saved cursor position
-            #  - move $_zc_num_rows down (which will be truncated if scrolling has occurred)
-            #  - move $_zc_num_rows up
-            #  - save new cursor position
-            ((_zc_first)) && printf "\e8\e[%uB\e[%uA\e7" $_zc_num_rows $_zc_num_rows
 
             _zc_first=0
             _zc_redraw_needed=0
@@ -686,7 +690,7 @@ _zcomp2() {
                 "$__zc_cEnd" \
                 $(( _zc_col_width+__zc_PaddingCols-1 ))
 
-        __zc_getkey     # returns value in _zc_key
+        __zc_getkey $((_zc_redraw_needed && __zc_has_read_alarm_status))    # returns value in _zc_key
     do
         __zcinfo -@ 'Got key %q' "$_zc_key"
 
@@ -701,7 +705,7 @@ _zcomp2() {
         (REDRAW)            _zc_redraw_now=1 ;;
 
         # ctrl-L to request redrawing
-        ($'\f')             _zc_redraw_needed=1 _zc_first=1 ;;
+        ($'\f')             _zc_redraw_now=1 ;;
 
         ## Capture answer to initial "report cursor position" request
         ($'\e['[?0-9]*\;*R) _zc_key=${_zc_key//[^;0-9]/}\; _zc_saved_row=${_zc_key%%\;*} _zc_key=${_zc_key#*\;} _zc_saved_col=${_zc_key%%\;*} ;;
