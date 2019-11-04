@@ -23,11 +23,12 @@
 __zc_DateTicks=1        # invoke "date" no more than once every second or so (before Bash version 4.2)
 __zc_ForceCols=0        # set non-zero to override terminal height
 __zc_ForceRows=0        # set non-zero to override terminal width
+__zc_LeftMargin=1       # indent menu
 __zc_MaxCols=223        # } limited user preference; note that mouse tracking can't
 __zc_MaxRows=223        # } report rows or columns higher than 223=0xff-0x20
 __zc_MouseTrack=1       # arbitrary user preference (numeric true/false)
 __zc_PaddingCols=2      # leave gaps between columns
-__zc_ReserveCols=2      # don't use rightmost columns in terminal, to avoid auto-right-margin causing problems
+__zc_RightMargin=1      # don't use rightmost column in terminal, to avoid auto-right-margin causing problems
 #__zc_Resizeable=1      # terminal is in a window that can be resized
 
 ################################################################################
@@ -566,6 +567,7 @@ fi
     __zc_get_term_size() {
         read -r   LINES            COLUMNS _   < <( stty size     2>/dev/null ) ||
         { read -r LINES && read -r COLUMNS ; } < <( tput -S <<<$'lines\ncols' )
+        (( _zc_scrn_cols -= __zc_RightMargin ))
         _zc_resize=1
     }
 
@@ -630,6 +632,56 @@ _zcomp() {
     set ${-:++$-} ${_zc_savedash:+-$_zc_savedash}
 }
 
+__zc_item() {
+    local -i _zci=$1 _zc_selected=$2 _zc_flowmode=$(($#>=3)) _zc_firstcol=$3 _zc_lastcol=$4
+    local -i _zc_row _zc_dcol
+    if ((!_zc_flowmode))
+    then
+        (( _zc_row  = _zci%_zc_num_rows,
+           _zc_dcol = _zci/_zc_num_rows - _zc_col_offset ))
+        # restore cursor position
+        printf %s "$__zc_cRestCursor"
+        # move down to item row (row 0 is the one after the command line)
+        __zc_cMoveD $(( _zc_row+1 ))
+        # move to left margin
+        printf '\r'
+        # move right to item column
+        __zc_cMoveR $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols)+__zc_LeftMargin ))
+    elif (( _zc_firstcol ))
+    then
+        # left margin on each line
+        printf '%*s\r' $(( __zc_LeftMargin )) ''
+        __zc_cMoveR $(( __zc_LeftMargin ))
+    fi
+    local _zct="${COMPREPLY[_zci]}"
+    # prune to fit, if necessary
+    _zct=${_zct:0:_zc_col_width}
+    # highlighted or plain?
+    if (( _zc_selected ))
+    then printf %s "$__zc_cSelect"
+    else printf %s "$__zc_cNormal"
+    fi
+    # show current item,
+    printf "%s" "$_zct"
+    # back to normal text
+    printf "%s" "$__zc_cEnd"
+    # if last column, erase remainder of line
+    (( _zc_lastcol )) && printf %s "$__zc_cClearEoL"
+    if (( !_zc_flowmode ))
+    then
+        # move cursor back to start of item, left by (_zc_col_width+__zc_PaddingCols-1),
+        __zc_cMoveL $(( ${#_zct} ))
+      # # move cursor back to command line
+      # __zc_cMoveU $(( _zc_row+1 ))
+      # printf '\r'
+      # printf %s "$__zc_cRestCursor"
+    elif (( !_zc_lastcol ))
+    then
+        # move cursor on to next item on this line
+        printf '%*s' $(( _zc_col_width - ${#_zct} + __zc_PaddingCols )) ''
+    fi
+}
+
 #
 # _zcomp part 2: generate completion list, show menu, accept user selection
 #
@@ -643,9 +695,9 @@ _zcomp2() {
 
     local _zc_button _zc_key
     local -i _zc_first=1 _zc_redraw_needed _zc_redraw_now _zc_resize=1
-    local -i _zc_col_offset _zc_col_width _zc_cur _zc_dcol _zc_mcol _zc_mrow
-    local -i _zc_last_item _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
-    local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_scrn_cols _zc_scrn_rows
+    local -i _zc_col_offset _zc_col_width _zc_cur _zc_mcol _zc_mrow
+    local -i _zc_last_item _zc_last_dcol _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
+    local -i _zc_prev_num_rows _zc_saved_row _zc_scrn_cols _zc_scrn_rows
     local -i _zc_max_item_width _zcj _zck _zcl
 
     (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_rows=-1 ))
@@ -682,10 +734,11 @@ _zcomp2() {
             (( _zc_scrn_rows <= __zc_MaxRows    || ( _zc_scrn_rows = __zc_MaxRows ),
                _zc_scrn_cols <= __zc_MaxCols    || ( _zc_scrn_cols = __zc_MaxCols ),
                _zc_col_width = _zc_max_item_width,
-               _zc_col_width <= _zc_scrn_cols-__zc_ReserveCols || ( _zc_col_width = _zc_scrn_cols-__zc_ReserveCols ),
-               _zc_num_dcols = (_zc_scrn_cols-__zc_ReserveCols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
+               _zc_col_width <= _zc_scrn_cols || ( _zc_col_width = _zc_scrn_cols ),
+               _zc_num_dcols = (_zc_scrn_cols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
                _zc_num_dcols <= _zc_num_items   || ( _zc_num_dcols = _zc_num_items ),
                _zc_num_dcols > 0                || ( _zc_num_dcols = 1 ),
+               _zc_last_dcol = _zc_num_dcols-1,
                _zc_num_rows = 1 + _zc_last_item / _zc_num_dcols,
                _zc_num_rows < _zc_scrn_rows     || ( _zc_num_rows = _zc_scrn_rows-1 ),
                _zc_num_rows > 0                 || ( _zc_num_rows = 1 ),
@@ -694,22 +747,13 @@ _zcomp2() {
                _zc_redraw_needed = 1 ))
         fi
 
-        (( _zc_row  = _zc_cur%_zc_num_rows,
-           _zc_vcol = _zc_cur/_zc_num_rows,
-           _zc_dcol = _zc_vcol - _zc_col_offset ))
-
-        if (( _zc_dcol >= _zc_num_dcols ))
-        then
-            (( _zc_col_offset += _zc_dcol-_zc_num_dcols+1,
-               _zc_dcol = _zc_vcol - _zc_col_offset,
-               _zc_redraw_needed = 1 ))
-        fi
-        if (( _zc_dcol < 0 ))
-        then
-            (( _zc_col_offset += _zc_dcol,
-               _zc_dcol = _zc_vcol - _zc_col_offset,
-               _zc_redraw_needed = 1 ))
-        fi
+        # scroll sideways to keep current item in view, by updating _zc_col_offset
+        (( _zcj = _zc_cur/_zc_num_rows - _zc_last_dcol,
+           _zc_col_offset < _zcj && (
+           _zc_col_offset = _zcj, _zc_redraw_needed = 1 ),
+           _zcj = _zc_cur/_zc_num_rows,
+           _zc_col_offset > _zcj && (
+           _zc_col_offset = _zcj, _zc_redraw_needed = 1 )))
 
         if ((_zc_redraw_now || _zc_redraw_needed && !__zc_has_read_alarm_status || _zc_prev_num_rows != _zc_num_rows || _zc_first))
         then
@@ -717,13 +761,17 @@ _zcomp2() {
             ((_zc_first)) && printf %s "$__zc_cSaveCursor"
 
             # display the menu
+            (( _zck = (_zc_num_dcols+_zc_col_offset)*_zc_num_rows,
+               _zck > _zc_num_items && (
+               _zck = _zc_num_items )))
             for (( _zcj = 0 ; _zcj < _zc_num_rows ; _zcj++ )) do
                 printf '\r\n'
-                printf "%s" "$__zc_cClearEoL"
-                for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zc_num_items && _zcl < (_zc_num_dcols+_zc_col_offset)*_zc_num_rows ; _zcl += _zc_num_rows )) do
-                    # shellcheck disable=SC2059
-                    printf " $__zc_cNormal%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s$__zc_cEnd " "${COMPREPLY[_zcl]}"
+                for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zck ; _zcl += _zc_num_rows )) do
+                    __zc_item $(( _zcl )) $(( _zcl == _zc_cur )) \
+                              $(( _zcl == _zcj+_zc_col_offset*_zc_num_rows )) \
+                              $(( _zcl >= _zck-_zc_num_rows ))
                 done
+                printf %s "$__zc_cClearEoL"
             done
 
             if (( _zc_prev_num_rows > _zc_num_rows ))
@@ -766,17 +814,7 @@ _zcomp2() {
         #
         # Highlight currently selected item:
         #
-        # restore cursor position, move down by (_zc_row+1), move to left margin,
-        # move right by (_zc_dcol*(_zc_col_width+__zc_PaddingCols)+1), show current item, move
-        # left by (_zc_col_width+__zc_PaddingCols-1)
-        #
-        printf %s "$__zc_cRestCursor"
-        __zc_cMoveD $(( _zc_row+1 ))
-        printf '\r'
-        __zc_cMoveR $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols) ))
-        # shellcheck disable=SC2059
-        printf " $__zc_cSelect%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s$__zc_cEnd " "${COMPREPLY[_zc_cur]}"
-        __zc_cMoveL $(( _zc_col_width+__zc_PaddingCols-1 ))
+        __zc_item $((_zc_cur)) 1
 
         __zc_getkey $((_zc_redraw_needed && __zc_has_read_alarm_status))    # returns value in _zc_key
     do
@@ -785,11 +823,7 @@ _zcomp2() {
         #
         # Redraw currently selected item without highlighting
         #
-        __zc_cMoveL 1
-        # shellcheck disable=SC2059
-        printf " $__zc_cNormal%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s$__zc_cEnd " "${COMPREPLY[_zc_cur]}"
-        __zc_cMoveU $(( _zc_row+1 ))
-        printf '\r'
+        __zc_item $((_zc_cur)) 0
 
         # Terminals don't usually produce the ;1~ variant, but just make sure
         _zc_key=${_zc_key/';1~'/'~'}
@@ -825,8 +859,7 @@ _zcomp2() {
                                _zck = _zc_mcol / (_zc_col_width+__zc_PaddingCols) + _zc_col_offset,
                                _zcj >= 0 && _zcj < _zc_num_rows &&
                                _zck >= 0 && _zck < _zc_num_dcols &&
-                               _zcj += _zc_num_rows*_zck,
-                               _zcj < _zc_num_items &&
+                               ( _zcj += _zc_num_rows*_zck ) < _zc_num_items &&
                              ( _zc_cur = _zcj ) ))
                             :
                             [[ "$_zc_button" = ' ' ]] && break
@@ -914,6 +947,7 @@ _zcomp2() {
         printf %s "$__zc_cStopTrackingMouse"
     }
 
+    printf %s "$__zc_cRestCursor"
     for (( _zcj=0 ; _zcj<_zc_num_rows ; _zcj++ )) do
         printf '\r\n'
         printf %s "$__zc_cClearEoL"
