@@ -267,42 +267,7 @@ __zclog() {
 }
 
 #
-# Usage:
-#   __zc_set_debug [ level=LEVEL ] [ xtrace=XMODE ] [ file=FILENAME | nofile ] [ OPTIONS ... ]
-# Unspecified options remain unchanged
-#
-# level=LEVEL
-#   0   silent
-#   1   enable errors
-#   2   enable warnings & errors
-#   3   enable info, warnings & errors (info = report all user requests)
-#   4   enable verbose, info, warnings & errors (verbose = report all mutating actions)
-#   5   enable tracing, verbose, info, warnings & errors (tracing = explain choices)
-#   6   enable debug as per mask, tracing, verbose, info, warnings & errors
-#   7   enable everything (all debugging, overriding the selection mask, and all other options)
-#
-# (The xtrace output from the completion menu code is insanely long, and
-# usually not useful to the rest of what's happening in the shell, so suppress
-# it by default, but allow it to be turned on so that the completion menu code
-# itself can be debugged.)
-#
-# xtrace=XMODE
-#   off         turn off xtrace inside completion (and restore on return; default)
-#   inherit     don't turn off xtrace inside completion
-#   on          turn on xtrace inside completion (and restore on return)
-#
-# log-to-fd
-# log-to-file
-# log-to-xtrace     merge xtrace & __zclog output
-#
-# xtrace-to-log     merge xtrace & __zclog output inside completion menu
-# xtrace-split      don't merge xtrace & __zclog
-#
-# If an alternative logfile is given, __zclog output will go there when inside a
-# completion function; xtrace output will also go there while inside completion,
-# if the shell version supports BASH_XTRACEFD.
-#
-# Note:  {var}> redirections were added in version 4.1 - avoid them.
+# Note:  {var}> redirections were added in version 4.1 - but avoid them.
 #   git blame parse.y | grep REDIR_
 #   ⇒ 0001803 2011-11-21 20:51:19 -0500 Bash-4.1 distribution source
 #
@@ -326,6 +291,43 @@ __zc_set_debug() {
 
     for j do
         case $j in
+        help|--help|-h) cat <<\EndOfHelp
+__zc_set_debug [ level=LEVEL ] [ xtrace=XMODE ] [ file=FILENAME | nofile ] [ OPTIONS ... ]
+
+level=LEVEL
+  0   silent
+  1   enable errors
+  2   enable warnings & errors
+  3   enable info, warnings & errors (info = report all user requests)
+  4   enable verbose, info, warnings & errors (verbose = report all mutating actions)
+  5   enable tracing, verbose, info, warnings & errors (tracing = explain choices)
+  6   enable debug as per mask, tracing, verbose, info, warnings & errors
+  7   enable everything (all debugging, overriding the selection mask, and all other options)
+
+(The xtrace output from the completion menu code is insanely long, and
+usually not useful to the rest of what's happening in the shell, so suppress
+it by default, but allow it to be turned on so that the completion menu code
+itself can be debugged.)
+
+xtrace=XMODE
+  off         turn off xtrace inside completion (and restore on return; default)
+  inherit     don't turn off xtrace inside completion
+  on          turn on xtrace inside completion (and restore on return)
+
+log-to-fd
+log-to-file
+log-to-xtrace     merge xtrace & __zclog output
+
+xtrace-to-log     merge xtrace & __zclog output inside completion menu
+xtrace-split      don't merge xtrace & __zclog
+
+If an alternative logfile is given, __zclog output will go there when inside a
+completion function; xtrace output will also go there while inside completion,
+if the shell version supports BASH_XTRACEFD.
+
+Unspecified options remain unchanged.
+EndOfHelp
+                        return 0 ;;
         level=*)        __zc_loglevel=${j#*=} ;;
         xtrace=inherit) __zc_xtrace_mode=0 ;;
         xtrace=on)      __zc_xtrace_mode=1 ;;
