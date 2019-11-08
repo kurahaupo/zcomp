@@ -1,3 +1,0 @@
-Put src/_zcomp somewhere where it will be read by the shell AFTER all your
-other completions, as it attempts to replace them.  Typically that might be in
-/etc/bash_completion.d/ or $HOME/.bash_completion.d/ depending on your distro.
