@@ -144,10 +144,13 @@ then
     # Note [4.0]
     # Bash v4.0 added the ability to separate xtrace output from stderr, by
     # redirecting it to fd « $BASH_XTRACEFD ». (It's harmless to set this
-    # variable in earlier versions, but xtrace output will be comingled with
-    # stderr.)
-    # Bash v4.0 added support for associative arrays (maps); for numeric
-    # variables use « ((mapname_$x)) » instead of « ((mapname[$x])) ».
+    # variable in earlier versions, but xtrace output will still be comingled
+    # with stderr.)
+    #
+    # Bash v4.0 added support for associative arrays (maps).
+    # For numeric variables in older versions use « ((mapname_$x)) » instead of
+    # « ((mapname[$x])) ».
+    #
     # Bash v4.0 added support for fractional timeouts with « read -t$seconds »,
     # and also sets the return code as if read had been killed by SIGALRM.
     # For older versions, use « read -t1 » instead, which will cause
@@ -162,12 +165,14 @@ fi
 if (( __zc_BASH_VERSION < 4001000 ))
 then
     # Note [4.1]
+    #
     # Bash v4.1 added support for « read -N$num ».
     # For older versions, use « read -n$num » instead, which may cause issues
     # if the tty's eol or eol2 is set to some character that's embedded within
     # a key's escape sequence. (In particular this may apply when eol2 is set
     # to ESC by readline in vi mode.)
     __zc_read_n1=-n1
+    #
     # Bash v4.1 added support for « {var}> » redirection.
     # For older versions, use fixed numbers for filedescriptors.
   # __zc_has_varredir=0
@@ -176,6 +181,7 @@ fi
 if (( __zc_BASH_VERSION < 4002000 ))
 then
     # Note [4.2]
+    #
     # Bash 4.2 added support for printf format specifier « %(...)T ».
     # For older versions, replace __zc_ts with a version that calls the
     # external « date » command instead, but at most once per __zc_DateTicks
@@ -195,9 +201,10 @@ fi
 #if (( __zc_BASH_VERSION < 4004000 ))
 #then
   # # Note [4.4]
+  # #
   # # Bash 4.4 added support for « local - »
   # # For older versions of bash, use « local _zc_savedash=$- » and then
-  # # « set ${-:++$-} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
+  # # « set ${-:++${-//[iloprs]}} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
   # #
   # __zc_has_localdash=0
 #fi
@@ -614,8 +621,9 @@ fi
 # of how part 2 returns
 #
 _zcomp() {
-    local _zc_savedash=$-
+    local _zc_rc=$? _zc_savedash=${-//[iloprs]}
     set +x
+    local _zc_undotrap=$( trap -p SIGINT SIGQUIT SIGWINCH )
 
     if (( __zc_xtrace_mode > 0 )) ||
      { (( __zc_xtrace_mode == 0 )) && [[ $_zc_savedash = *x* ]] ;}
@@ -624,14 +632,21 @@ _zcomp() {
         set -x
     fi
 
-    local _zc_xtrap=$( trap -p SIGINT SIGQUIT SIGWINCH )
-
     _zcomp2 "$@" 2>&7
 
-    # revert signal handlers
-    eval "$_zc_xtrap"
+    # Revert signal handlers
+    eval "$_zc_undotrap"
+    _zc_rc=$?
 
-    set ${-:++$-} ${_zc_savedash:+-$_zc_savedash}
+    # Revert the « set » options.
+    # Options -i, -l, -p, -r & -s can only be set at invocation and not unset.
+    # Option -o takes a parameter and should not be present, but will break if
+    # it is.
+    # (It turns out that « set +${-//[iloprs]} -$oldopts » works even if $- or
+    # $oldopts is empty, but it's undocumented so don't rely on it.)
+    local _zc_undodash=${-//[iloprs]}
+    set ${_zc_undodash:++$_zc_undodash} ${_zc_savedash:+-$_zc_savedash} --
+    return $((_zc_rc))
 }
 
 __zc_item() {
