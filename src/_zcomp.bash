@@ -138,7 +138,7 @@ declare -a _zc_atexit=()
 #__zc_has_localdash=1               # can do « local - »
 __zc_has_read_alarm_status=1        # « read -t$seconds » returns SIGALRM status on timeout
 #__zc_has_varredir=1                # can do « {var}> ... » redirection
-#__zc_has_xtracefd=1                # « set -o xtrace » output as if « 2>&$BASH_XTRACEFD »
+__zc_has_xtracefd=1                 # output triggered by « set -x » can go somewhere other than stderr
 __zc_read_n1=-N1                    # « read -N$bytes » is understood
 __zc_read_t01=-t0.1                 # « read -t$seconds » can understand fractions
 __zc_ts() { printf "%($*)T" -1 ; }  # timestamp (without trailing newline)
@@ -150,7 +150,7 @@ then
     # Bash v4.0 added the ability to separate xtrace output from stderr, by
     # redirecting it to fd « $BASH_XTRACEFD ». (It's harmless to set this
     # variable in earlier versions, but xtrace output will still be comingled
-    # with stderr.)
+    # with stderr, so we only use this setting for reporting.)
     #
     # Bash v4.0 added support for associative arrays (maps).
     # For numeric variables in older versions use « ((mapname_$x)) » instead of
@@ -162,7 +162,7 @@ then
     # user-observable delays when pressing ESC, and will increase the
     # likelihood of oddities if an incomplete sequence is received followed by
     # another key within the second.
-  # __zc_has_xtracefd=0
+    __zc_has_xtracefd=0
     __zc_read_t01=-t1
     __zc_has_read_alarm_status=0
 fi
@@ -305,8 +305,10 @@ __zc_set_debug() {
 
     for j do
         case $j in
-        help|--help|-h) cat <<\EndOfHelp
+        help|--help|-h) cat <<EndOfHelp
 __zc_set_debug [ level=LEVEL ] [ xtrace=XMODE ] [ file=FILENAME | nofile ] [ OPTIONS ... ]
+
+Control what happens to debug & xtrace output while in the menu functions.
 
 level=LEVEL
   0   silent
@@ -336,12 +338,20 @@ xtrace-to-log     merge xtrace & __zclog output inside completion menu
 xtrace-split      don't merge xtrace & __zclog
 
 If an alternative logfile is given, __zclog output will go there when inside a
-completion function; xtrace output will also go there while inside completion,
-if the shell version supports BASH_XTRACEFD.
+completion function; $(
+if ((__zc_has_xtracefd)) ; then
+    echo            'xtrace output will also go there, since this version of
+Bash supports BASH_XTRACEFD'
+else
+    echo            'however xtrace output will go to stderr instead, since
+this version of Bash does not support BASH_XTRACEFD'
+fi                  ).
 
-Unspecified options remain unchanged.
+Unspecified options are treated as flags to enable or disable debugging in
+particular modules.
 EndOfHelp
                         return 0 ;;
+
         level=*)        __zc_loglevel=${j#*=} ;;
         xtrace=inherit) __zc_xtrace_mode=0 ;;
         xtrace=on)      __zc_xtrace_mode=1 ;;
