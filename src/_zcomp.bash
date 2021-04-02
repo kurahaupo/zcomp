@@ -464,7 +464,7 @@ fi
 #   }
 
     # sort COMPREPLY[] using a bottom-up heapsort and simultaneously remove duplicates
- 
+
     __zc_sort() {
         local i j k n=${#COMPREPLY[@]} o t u
         __zcdebug sortmain \
