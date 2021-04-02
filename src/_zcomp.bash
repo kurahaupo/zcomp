@@ -141,6 +141,7 @@ __zc_has_varredir=1                 # can do « {var}> ... » redirection
 __zc_has_xtracefd=1                 # output triggered by « set -x » can go somewhere other than stderr
 __zc_read_n1=-N1                    # « read -N$bytes » is understood
 __zc_read_t01=-t0.1                 # « read -t$seconds » can understand fractions
+
 __zc_ts() { printf "%($*)T" -1 ; }  # timestamp (without trailing newline)
 
 if (( __zc_BASH_VERSION < 4000000 ))
@@ -362,8 +363,11 @@ EndOfHelp
         xtrace-to-log)  __zc_log_to_xtrace=0
                         __zc_xtrace_to_log=1
                         ;;
-        xtrace-split)   __zc_xtrace_to_log=0
-        ;;
+        xtrace-split)   __zc_log_to_xtrace=0
+                        __zc_xtrace_to_log=0
+                        ((__zc_has_xtracefd)) ||
+                            __zcwarn "xtrace-split won't work on this version of Bash"
+                        ;;
         log-to-xtrace)  __zc_log_to_xtrace=1
                         __zc_log_to_fd=
                         __zc_log_to_file=
@@ -412,11 +416,11 @@ EndOfHelp
         # Use a logfile, if specified
         exec 7>> "$__zc_log_to_file" || return
         {
-        __zc_ts
+        __zc_ts %F,%T
         printf ' [%u] ' $$
         printf ' LOGGING STARTED\n'
-        printf '\tlevel=%d (%s)\n' "$__zc_loglevel" "${_zc_level_names[__zc_loglevel]:-unknown}"
-        printf '\txtrace=%d (%s)\n' "$__zc_xtrace_mode" "${_zc_xtrace_modes[__zc_xtrace_mode+1]:-unknown}"
+        printf '\tlevel=%d (%s)\n' "$__zc_loglevel" "${_zc_level_names[__zc_loglevel]:-unnamed}"
+        printf '\txtrace=%d (%s)\n' "$__zc_xtrace_mode" "${_zc_xtrace_modes[__zc_xtrace_mode+1]:-unnamed}"
         printf '\tlog-to-'
         [[ $__zc_log_to_fd ]] && printf 'fd=%d ' "$__zc_log_to_fd"
         [[ $__zc_log_to_file ]] && printf 'file=%s ' "$__zc_log_to_file"
