@@ -137,7 +137,7 @@ declare -a _zc_atexit=()
 
 #__zc_has_localdash=1               # can do « local - »
 __zc_has_read_alarm_status=1        # « read -t$seconds » returns SIGALRM status on timeout
-#__zc_has_varredir=1                # can do « {var}> ... » redirection
+__zc_has_varredir=1                 # can do « {var}> ... » redirection
 __zc_has_xtracefd=1                 # output triggered by « set -x » can go somewhere other than stderr
 __zc_read_n1=-N1                    # « read -N$bytes » is understood
 __zc_read_t01=-t0.1                 # « read -t$seconds » can understand fractions
@@ -180,7 +180,9 @@ then
     #
     # Bash v4.1 added support for « {var}> » redirection.
     # For older versions, use fixed numbers for filedescriptors.
-  # __zc_has_varredir=0
+    #
+    # (Currently we don't make any use of this feature.)
+    __zc_has_varredir=0
 fi
 
 if (( __zc_BASH_VERSION < 4002000 ))
