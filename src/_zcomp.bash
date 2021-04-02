@@ -199,7 +199,7 @@ then
         then
             (( __zcpsec = SECONDS ))
             __zcpfmt="$*"
-            __zcdate=$(date +"$__zcpfmt")
+            __zcdate=$( date +"$__zcpfmt" )
         fi
         printf '%s' "$__zcdate"
     }
@@ -464,9 +464,9 @@ then
     # Assume that if set -x is on when you load zcomp, it's because you want to
     # debug zcomp itself.
     __zc_set_debug log-to-file="$HOME/tmp/_zcomp.$$.log" xtrace-to-log level=7 +ALL
-    __zclog -@ 'Starting zcomp loading, pid=%u tty=%s\n' $$ "${TTY:=$(tty)}"
+    __zclog -@ 'Starting zcomp loading, pid=%u tty=%s\n' $$ "${TTY:=$( tty )}"
     _zc_loaderfinish() {
-        __zclog -@ 'Finished loading zcomp, pid=%u tty=%s ex=%#x' $$ "${TTY:=$(tty)}" $?
+        __zclog -@ 'Finished loading zcomp, pid=%u tty=%s ex=%#x' $$ "${TTY:=$( tty )}" $?
         set -x
     }
     _zc_atexit+=( _zc_loaderfinish )
