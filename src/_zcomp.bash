@@ -571,8 +571,8 @@ fi
         fi
         if (( ${#_zc_compgen_args[@]} ))
         then
-            _zc_list=$( compgen -o nospace "${_zc_compgen_args[@]}" "${COMP_WORDS[COMP_CWORD]}" )
-            __zcdebug gen -@0 'GENCMD' \
+            _zc_list=$( compgen -o nospace "${_zc_compgen_args[@]}" -- "${COMP_WORDS[COMP_CWORD]}" )
+            __zcdebug gen -@0 'GENCOMPGEN' \
                     -@1 [] "$_zc_genfunc" \
                     -@« [] "${_zc_genargs[@]}" » \
                     -@1 ' returned %x, replied' $? \
