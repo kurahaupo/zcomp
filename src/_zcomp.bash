@@ -23,40 +23,86 @@
 __zc_DateTicks=1        # invoke "date" no more than once every second or so (before Bash version 4.2)
 __zc_ForceCols=0        # set non-zero to override terminal height
 __zc_ForceRows=0        # set non-zero to override terminal width
+__zc_LeftMargin=1       # indent menu
 __zc_MaxCols=223        # } limited user preference; note that mouse tracking can't
 __zc_MaxRows=223        # } report rows or columns higher than 223=0xff-0x20
 __zc_MouseTrack=1       # arbitrary user preference (numeric true/false)
 __zc_PaddingCols=2      # leave gaps between columns
-__zc_ReserveCols=2      # don't use rightmost columns in terminal, to avoid auto-right-margin causing problems
+__zc_RightMargin=1      # don't use rightmost column in terminal, to avoid auto-right-margin causing problems
+#__zc_Resizeable=1      # terminal is in a window that can be resized
 
 ################################################################################
 #
-# Note: This script only works with ANSI-style terminals and terminal
-# emulators, such as Xterm; it can cope with resizable terminal windows.
+# Note [ANSI]
+# This script only works with ANSI-style terminals and terminal emulators, such
+# as Xterm; it can cope with resizable terminal windows.
 #
 # It also requires either "tput -S" (and a version that understands "rows" &
 # "lines", so probably any POSIX compliant version), or "stty size" (which
 # probably means only GNU's "stty").
 #
+# TODO: add support for non-ANSI terminals, maybe, someday.
+#
+
+[[ "$( tput cup 9 6 ; tput clear )" = $'\e[10;7H\e['*'J' ]] || return   # doesn't seem to be an ANSI terminal
 
 case $TERM in
 (ansi*\
 |cons*\
-|cygwin*\
 |linux*\
-|rxvt*\
 |vt???*\
-|wsvt*\
-)               __zc_resizeable=0 ;;    # fixed-size terminal
-(*[vwxy]term*\
+)               __zc_MouseTrack=0
+              # __zc_Resizeable=0
+                ;;    # console
+
+([Pp][Uu][Tt][Tt][Yy]*\
 |screen*\
-)               __zc_resizeable=1 ;;    # resizable terminal
-(*)             return ;;               # not supported on unknown terminal types
+)               __zc_MouseTrack=0 ;;    # window terminal, but don't trust mouse tracking
+
+(*[vwxy]term*\
+|cygwin*\
+|rxvt*\
+|wsvt*\
+)               : ;;                    # resizable terminal, with mouse
+
+(*)             __zc_MouseTrack=0
+              # __zc_Resizeable=0
+                ;;    # assume fixed-size terminal, without mouse
 esac
 
-__zc_cNormal=$'\e[33;40;0m'     # show list in yellow-on-black
-__zc_cSelect=$'\e[37;40;1m'     # show highlit item in bright-white-on-black
-__zc_cEnd=$'\e[39;49;0m'        # go back to "normal" colours
+__zc_cKeyUp=$( tput kcuu1 )     # or '\e[A' or '\eOA'
+__zc_cKeyDn=$( tput kcud1 )     # or '\e[B' or '\eOB'
+__zc_cKeyRt=$( tput kcuf1 )     # or '\e[C' or '\eOC'
+__zc_cKeyLf=$( tput kcub1 )     # or '\e[D' or '\eOD'
+__zc_cKeyHm=$( tput khome )     # or '\e[H' or '\eOH'
+__zc_cKeyEn=$( tput kend )      # or '\e[F' or '\eOF'
+__zc_cKeyPU=$( tput kpp )       # or '\e[5~'
+__zc_cKeyPD=$( tput knp )       # or '\e[6~'
+
+declare -a __zc_cMoveU ; __zc_cMoveU() { local rows=$(($1)) ; printf %s "${__zc_cMoveU[rows]=$( ((rows)) && tput cuu "$rows" )}" ; }   # '\e[%uA'
+declare -a __zc_cMoveD ; __zc_cMoveD() { local rows=$(($1)) ; printf %s "${__zc_cMoveD[rows]=$( ((rows)) && tput cud "$rows" )}" ; }   # '\e[%uB'
+declare -a __zc_cMoveR ; __zc_cMoveR() { local cols=$(($1)) ; printf %s "${__zc_cMoveR[cols]=$( ((cols)) && tput cuf "$cols" )}" ; }   # '\e[%uC'
+declare -a __zc_cMoveL ; __zc_cMoveL() { local cols=$(($1)) ; printf %s "${__zc_cMoveL[cols]=$( ((cols)) && tput cub "$cols" )}" ; }   # '\e[%uD'
+
+__zc_cSaveCursor=$( tput sc )   # or '\e7'
+__zc_cRestCursor=$( tput rc )   # or '\e8'
+__zc_cClearEoL=$( tput el )     # or '\e[K'
+
+__zc_cNormal=$( tput dim        # show list in dim yellow-on-black $'\e[22;33;40m'
+                tput setaf 3
+                tput setab 0 )
+__zc_cSelect=$( tput bold       # show highlit item in bright-white-on-black $'\e[1;37;40m'
+                tput setaf 3
+                tput setab 0 )
+__zc_cEnd=$( tput sgr0 )        # go back to "normal" colours $'\e[39;49;21m'
+
+__zc_cNormal=${__zc_cNormal//$'m\e['/';'}
+__zc_cSelect=${__zc_cSelect//$'m\e['/';'}
+
+# no tput equivalents
+__zc_cReportCursor=$'\e[?6n'
+__zc_cStartTrackingMouse=$'\e[?1003h'
+__zc_cStopTrackingMouse=$'\e[?1003l'
 
 ################################################################################
 #
@@ -85,65 +131,83 @@ declare -a _zc_atexit=()
 # Compensate for shortcomings of earlier versions of Bash
 #
 
-__zc_has_localdash=1                # can do local -
-__zc_has_varredir=1                 # can do {var}>... redirection
-__zc_has_xtracefd=1                 # set -o xtrace writes to >&$BASH_XTRACEFD
-__zc_read_n1=-N1                    # read -N is understood
-__zc_read_t01=-t0.1                 # read -t can understand fractions of second
+#__zc_has_localdash=1               # can do « local - »
+__zc_has_read_alarm_status=1        # « read -t$seconds » returns SIGALRM status on timeout
+#__zc_has_varredir=1                # can do « {var}> ... » redirection
+#__zc_has_xtracefd=1                # « set -o xtrace » output as if « 2>&$BASH_XTRACEFD »
+__zc_read_n1=-N1                    # « read -N$bytes » is understood
+__zc_read_t01=-t0.1                 # « read -t$seconds » can understand fractions
 __zc_ts() { printf "%($*)T" -1 ; }  # timestamp (without trailing newline)
 
 if (( __zc_BASH_VERSION < 4000000 ))
 then
     # Note [4.0]
-    # Bash v4.0 added support for associative arrays (maps); for numeric
-    # variables use ((mapname_$x)) instead of ((mapname[$x])).
-    # Bash v4.0 added support for fractional timeouts with « read -t ».
-    # For older versions, use -t1 instead, which may cause user-observable
-    # delays.
-    __zc_has_xtracefd=0
+    # Bash v4.0 added the ability to separate xtrace output from stderr, by
+    # redirecting it to fd « $BASH_XTRACEFD ». (It's harmless to set this
+    # variable in earlier versions, but xtrace output will still be comingled
+    # with stderr.)
+    #
+    # Bash v4.0 added support for associative arrays (maps).
+    # For numeric variables in older versions use « ((mapname_$x)) » instead of
+    # « ((mapname[$x])) ».
+    #
+    # Bash v4.0 added support for fractional timeouts with « read -t$seconds »,
+    # and also sets the return code as if read had been killed by SIGALRM.
+    # For older versions, use « read -t1 » instead, which will cause
+    # user-observable delays when pressing ESC, and will increase the
+    # likelihood of oddities if an incomplete sequence is received followed by
+    # another key within the second.
+  # __zc_has_xtracefd=0
     __zc_read_t01=-t1
+    __zc_has_read_alarm_status=0
 fi
 
 if (( __zc_BASH_VERSION < 4001000 ))
 then
     # Note [4.1]
+    #
     # Bash v4.1 added support for « read -N$num ».
     # For older versions, use « read -n$num » instead, which may cause issues
-    # if the tty's eol2 is set to some character that's embedded within a key's
-    # escape sequence. (In particular this may apply when eol2 is set to ESC by
-    # readline in vi mode.)
+    # if the tty's eol or eol2 is set to some character that's embedded within
+    # a key's escape sequence. (In particular this may apply when eol2 is set
+    # to ESC by readline in vi mode.)
     __zc_read_n1=-n1
+    #
     # Bash v4.1 added support for « {var}> » redirection.
     # For older versions, use fixed numbers for filedescriptors.
-    __zc_has_varredir=0
+  # __zc_has_varredir=0
 fi
 
 if (( __zc_BASH_VERSION < 4002000 ))
 then
     # Note [4.2]
+    #
     # Bash 4.2 added support for printf format specifier « %(...)T ».
-    # For older versions, replace __zc_ts with a version that calls the external
-    # « date » command instead, but at most once per __zc_DateTicks seconds
-    # (based on when SECONDS changes), or whenever format ($*) changes.
+    # For older versions, replace __zc_ts with a version that calls the
+    # external « date » command instead, but at most once per __zc_DateTicks
+    # seconds (based on when SECONDS changes), or whenever the format («$*»)
+    # changes.
     __zc_ts() {
-        (( __zcpsec + __zc_DateTicks > SECONDS )) && [[ "$*" = "$__zcpfmt" ]] || {
+        if (( __zcpsec + __zc_DateTicks <= SECONDS )) || [[ "$*" != "$__zcpfmt" ]]
+        then
             (( __zcpsec = SECONDS ))
             __zcpfmt="$*"
             __zcdate=$(date +"$__zcpfmt")
-        }
+        fi
         printf '%s' "$__zcdate"
     }
 fi
 
-if (( __zc_BASH_VERSION < 4004000 ))
-then
-    # Note [4.4]
-    # Bash 4.4 added support for « local - »
-    # For older versions of bash, use « local _zc_savedash=$- » and then
-    # « set ${-:++$-} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
-    #
-    __zc_has_localdash=0
-fi
+#if (( __zc_BASH_VERSION < 4004000 ))
+#then
+  # # Note [4.4]
+  # #
+  # # Bash 4.4 added support for « local - »
+  # # For older versions of bash, use « local _zc_savedash=$- » and then
+  # # « set ${-:++${-//[iloprs]}} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
+  # #
+  # __zc_has_localdash=0
+#fi
 
 ################################################################################
 #
@@ -170,7 +234,7 @@ __zclog() {
         shift
         case $n in
         @|'')       n_shift=$# argc=$# ;;
-        «)          for ((n_shift=1;n_shift<=$#;++n_shift)) do [[ ${!n_shift} = » ]] && break ; done ; argc=n_shift-1 ;;
+        «)          for ((n_shift=1;n_shift<=$#;++n_shift)) do [[ ${!n_shift} = » ]] && break ; done ; argc='n_shift-1' ;;
         n)          newline=0 ; continue ;;
         *[!0-9]*)   break ;;
         *)          n_shift=n argc=n_shift ;;
@@ -185,15 +249,18 @@ __zclog() {
             fmt=${fmt:-\ %q}
             sep=${fmt%%\%*} fmt=${fmt#"$sep"}
 
-            printf "$pre"
+            printf %s "$pre"
             if ((argc>0))
             then
+                # shellcheck disable=SC2059
                 printf "$fmt" "${@:1:1}"
+                # shellcheck disable=SC2059
                 ((argc>1)) &&
                 printf "$sep$fmt" "${@:2:argc-1}"
             fi
-            printf "$post" ;;
+            printf %s "$post" ;;
         *)
+            # shellcheck disable=SC2059
             printf "$fmt" "${@:1:argc}" ;;
         esac
 
@@ -203,83 +270,111 @@ __zclog() {
     printf '%s' "$*"
     ((newline)) && printf '\n'
   } >&7 2>&1
-    return $_zc_r
+    return $((_zc_r))
 }
 
 #
-# Usage:
-#   __zc_set_debug [ level=LEVEL ] [ xtrace=XMODE ] [ file=FILENAME | nofile ] [ OPTIONS ... ]
-# Unspecified options remain unchanged
-#
-# level=LEVEL
-#   0   silent
-#   1   enable errors
-#   2   enable warnings & errors
-#   3   enable info, warnings & errors (info = report all user requests)
-#   4   enable verbose, info, warnings & errors (verbose = report all mutating actions)
-#   5   enable tracing, verbose, info, warnings & errors (tracing = explain choices)
-#   6   enable debug as per mask, tracing, verbose, info, warnings & errors
-#   7   enable everything (all debugging, overriding the selection mask, and all other options)
-#
-# (The xtrace output from the completion menu code is insanely long, and
-# usually not useful to the rest of what's happening in the shell, so suppress
-# it by default, but allow it to be turned on so that the completion menu code
-# itself can be debugged.)
-#
-# xtrace=XMODE
-#   off         turn off xtrace inside completion (and restore on return; default)
-#   inherit     don't turn off xtrace inside completion
-#   on          turn on xtrace inside completion (and restore on return)
-#
-# log-to-fd
-# log-to-file
-# log-to-xtrace     merge xtrace & __zclog output
-#
-# xtrace-to-log     merge xtrace & __zclog output inside completion menu
-# xtrace-split      don't merge xtrace & __zclog
-#
-# If an alternative logfile is given, __zclog output will go there when inside a
-# completion function; xtrace output will also go there while inside completion,
-# if the shell version supports BASH_XTRACEFD.
-#
-# Note:  {var}> redirections were added in version 4.1 - avoid them.
+# Note:  {var}> redirections were added in version 4.1 - but avoid them.
 #   git blame parse.y | grep REDIR_
 #   ⇒ 0001803 2011-11-21 20:51:19 -0500 Bash-4.1 distribution source
 #
 
-declare -i __zc_nextmask=0 __zc_mask=0 __zc_maskname_all='~0'
+declare -i __zc_nextmask=0 __zc_mask=0
 declare -i __zc_loglevel=3 __zc_xtrace_mode=-1 __zc_xtrace_to_log=0 __zc_log_to_xtrace=0
 declare __zc_log_to_fd=2 __zc_log_to_file=
 
+# shellcheck disable=SC2034 disable=SC2088
+declare -i __zc_maskname_COMPLETE=$(( 1 << __zc_nextmask++ )) \
+           __zc_maskname_GEN=$(( 1 << __zc_nextmask++ )) \
+           __zc_maskname_SORTMAIN=$(( 1 << __zc_nextmask++ )) \
+           __zc_maskname_WRAP=$(( 1 << __zc_nextmask++ )) \
+           __zc_maskname_ZCOMP=$(( 1 << __zc_nextmask++ )) \
+           __zc_maskname_ALL='~0'
+
 __zc_set_debug() {
-    local _zc_debug=0 j k
+    local j k
     local -a _zc_level_names=( silent errors warnings info verbose tracing debug everything )
     local -a _zc_xtrace_modes=( off inherit on )
 
     for j do
         case $j in
+        help|--help|-h) cat <<\EndOfHelp
+__zc_set_debug [ level=LEVEL ] [ xtrace=XMODE ] [ file=FILENAME | nofile ] [ OPTIONS ... ]
+
+level=LEVEL
+  0   silent
+  1   enable errors
+  2   enable warnings & errors
+  3   enable info, warnings & errors (info = report all user requests)
+  4   enable verbose, info, warnings & errors (verbose = report all mutating actions)
+  5   enable tracing, verbose, info, warnings & errors (tracing = explain choices)
+  6   enable debug as per mask, tracing, verbose, info, warnings & errors
+  7   enable everything (all debugging, overriding the selection mask, and all other options)
+
+(The xtrace output from the completion menu code is insanely long, and
+usually not useful to the rest of what's happening in the shell, so suppress
+it by default, but allow it to be turned on so that the completion menu code
+itself can be debugged.)
+
+xtrace=XMODE
+  off         turn off xtrace inside completion (and restore on return; default)
+  inherit     don't turn off xtrace inside completion
+  on          turn on xtrace inside completion (and restore on return)
+
+log-to-fd
+log-to-file
+log-to-xtrace     merge xtrace & __zclog output
+
+xtrace-to-log     merge xtrace & __zclog output inside completion menu
+xtrace-split      don't merge xtrace & __zclog
+
+If an alternative logfile is given, __zclog output will go there when inside a
+completion function; xtrace output will also go there while inside completion,
+if the shell version supports BASH_XTRACEFD.
+
+Unspecified options remain unchanged.
+EndOfHelp
+                        return 0 ;;
         level=*)        __zc_loglevel=${j#*=} ;;
         xtrace=inherit) __zc_xtrace_mode=0 ;;
         xtrace=on)      __zc_xtrace_mode=1 ;;
         xtrace=off)     __zc_xtrace_mode=-1 ;;
-        xtrace-to-log)  __zc_log_to_xtrace=0 __zc_xtrace_to_log=1 ;;
-        xtrace-split)   __zc_xtrace_to_log=0 ;;
-        log-to-xtrace)  __zc_log_to_xtrace=1 __zc_log_to_fd=  __zc_log_to_file= __zc_xtrace_to_log=0 ;;
-        log-to-fd=*)    __zc_log_to_xtrace=0 __zc_log_to_fd=${j#*=} __zc_log_to_file= ;;
+        xtrace-to-log)  __zc_log_to_xtrace=0
+                        __zc_xtrace_to_log=1
+                        ;;
+        xtrace-split)   __zc_xtrace_to_log=0
+        ;;
+        log-to-xtrace)  __zc_log_to_xtrace=1
+                        __zc_log_to_fd=
+                        __zc_log_to_file=
+                        __zc_xtrace_to_log=0
+                        ;;
+        log-to-fd=*)    __zc_log_to_xtrace=0
+                        __zc_log_to_fd=${j#*=}
+                        __zc_log_to_file=
+                        ;;
         log-to-file=-|log-to-stderr)
-                        __zc_log_to_xtrace=0 __zc_log_to_fd=2 __zc_log_to_file=        ;;
-        log-to-file=*)  __zc_log_to_xtrace=0 __zc_log_to_fd=  __zc_log_to_file=${j#*=} ;;
+                        __zc_log_to_xtrace=0
+                        __zc_log_to_fd=2
+                        __zc_log_to_file=
+                        ;;
+        log-to-file=*)  __zc_log_to_xtrace=0
+                        __zc_log_to_fd=
+                        __zc_log_to_file=${j#*=}
+                        ;;
         xtrace*)        printf >&2 '__zc_set_debug: invalid "xtrace" option "%s"\n' "$j" ;;
         log-to*)        printf >&2 '__zc_set_debug: invalid "log-to" option "%s"\n' "$j" ;;
-        [!-+=_a-z0-9]*|?*[!_a-z0-9]*)
+        [!-+=_A-Za-z0-9]*|?*[!_A-Za-z0-9]*)
             printf >&2 '__zc_set_debug: invalid option "%s"\n' "$j" ;;
         *)
-            k=${j#[!a-z]} j=${j%"$k"}
-            if [[ $k = @(0|[1-9]*([0-9])|0x*([0-9a-f])) ]]
-            then (( k = k ))
-            else (( __zc_maskname_$k || ( __zc_maskname_$k = 1 << __zc_nextmask++ ),
-                    k = __zc_maskname_$k )) # see version note [4.0]
+            k=${j#[!A-Za-z]} j=${j%"$k"}
+            if [[ $k != @(0|[1-9]*([0-9])|0x*([0-9a-f])) ]]
+            then
+                k=__zc_maskname_$k  # see version note [4.0]
+                # shellcheck disable=SC2004
+                (( k || ( $k = 1 << __zc_nextmask++ ) ))
             fi
+            (( k = k ))
             case $j in
             +)      (( __zc_mask |=  k )) ;;
             -)      (( __zc_mask &=~ k )) ;;
@@ -291,7 +386,7 @@ __zc_set_debug() {
     if [[ -n $__zc_log_to_fd ]]
     then
         # Use a log fd, if specified
-        exec 7>&$__zc_log_to_fd
+        exec 7>&$((__zc_log_to_fd))
     elif [[ -n $__zc_log_to_file ]]
     then
         # Use a logfile, if specified
@@ -312,7 +407,7 @@ __zc_set_debug() {
     elif (( __zc_log_to_xtrace ))
     then
         # Use current BASH_XTRACEFD, or failing that stderr.
-        exec 7>&${BASH_XTRACEFD:-2}
+        exec 7>&"${BASH_XTRACEFD:-2}"
     elif (( __zc_loglevel > 0 || __zc_xtrace_to_log ))
     then
         # Fall back to stderr if either non-silent or xtrace-to-log
@@ -329,7 +424,8 @@ __zc_set_debug() {
 #   if (( __zc_loglevel > 4 )) ; then __zctrace()   { __zclog "$@" ; } ; else __zctrace()   { return $? ; } ; fi
     if (( __zc_loglevel > 5 )) ; then
         __zcdebug() {
-            (( __zc_mask & __zc_maskname_$1 )) || return 1
+            local -i k=__zc_maskname_$1  # see version note [4.0]
+            (( __zc_mask & k )) || return 1
             shift
             __zclog "$@"
             return 0
@@ -345,10 +441,9 @@ __zc_set_debug() {
 
 if [[ $- = *x* ]]
 then
-    __zc_dashx=-x
     # Assume that if set -x is on when you load zcomp, it's because you want to
     # debug zcomp itself.
-    __zc_set_debug log-to-file="$HOME/tmp/_zcomp.$$.log" xtrace-to-log level=7 +all
+    __zc_set_debug log-to-file="$HOME/tmp/_zcomp.$$.log" xtrace-to-log level=7 +ALL
     __zclog -@ 'Starting zcomp loading, pid=%u tty=%s\n' $$ "${TTY:=$(tty)}"
     _zc_loaderfinish() {
         __zclog -@ 'Finished loading zcomp, pid=%u tty=%s ex=%#x' $$ "${TTY:=$(tty)}" $?
@@ -356,119 +451,17 @@ then
     }
     _zc_atexit+=( _zc_loaderfinish )
 else
-    __zc_dashx=+x
-    __zc_set_debug level=0 log-to-xtrace -all
+    __zc_set_debug level=0 log-to-xtrace -ALL
 fi
 
 ################################################################################
-
-#   # eliminate duplicates in COMPREPLY[]
-#
-#   __zc_unique() {
-#       __zcdebug sortuniq -@1 'START unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
-#       local i has_dups
-#       for (( i=${#COMPREPLY[@]}-1, has_dups=0 ; i>=1 ; i-- )) do
-#           if [[ ${COMPREPLY[i-1]} = ${COMPREPLY[i]} ]]
-#           then
-#               __zcdebug sortuniq -@3 'merge [%u] duplicated by [%u]=%q' $((i-1)) $((i)) "${COMPREPLY[i]}"
-#               unset 'COMPREPLY[i]'
-#               has_dups=1
-#           fi
-#       done
-#       ((has_dups)) && COMPREPLY=("${COMPREPLY[@]}") ;
-#       __zcdebug sortuniq -@1 'FINISH unique %u:' "$_zc_num_items" -@ '\n %q' "${COMPREPLY[@]}"
-#   }
-
-#   # sort COMPREPLY[] using a non-recursive quicksort, and then remove duplicates
-#
-#   __zc_sort() {
-#       __zcdebug sortmain -@0 'pre-sort:' -@ '\n %q' "${COMPREPLY[@]}"
-#       __zc__swap() {
-#           __zcdebug sortswap "swapping [$(($1))]=${COMPREPLY[$1]} [$(($2))]=${COMPREPLY[$2]}"
-#           local temp=${COMPREPLY[$1]}
-#                        COMPREPLY[$1]=${COMPREPLY[$2]}
-#                                        COMPREPLY[$2]=$temp
-#       }
-#       local -ai partitions=( -1 ${#COMPREPLY[@]} )
-#       local first last pivot_pt pivot_val npart=1
-#       for ((; npart > 0 ;)) do
-#           (( first= partitions[npart-1]+1,
-#              last = partitions[npart  ]-1 ))
-#           if (( last-first <= 1 ))
-#           then
-#               ((--npart)) # pop
-#               if (( last>first )) && [[ "${COMPREPLY[first]}" > "${COMPREPLY[last]}" ]]
-#               then
-#                   # Just two items in the partition; and they're out of
-#                   # order, so swap them.
-#                   __zc__swap first last
-#               fi
-#           else
-#               # Partition list so that all before the pivot point are less than
-#               # the pivot value, and all at-or-after the pivot point are
-#               # greater-than-or-equal to the pivot value, so:
-#               # (1) scan past duplicates
-#               # (2) pick a pivot value that isn't the lowest value
-#               pivot_val=${COMPREPLY[first]}
-#               for (( pivot_pt=last ; first<pivot_pt ;--pivot_pt )) do
-#                   [[ "$pivot_val" = "${COMPREPLY[pivot_pt]}" ]] || break
-#               done &&
-#                   continue    # all identical, so this partition is done!!
-#               [[ "$pivot_val" < "${COMPREPLY[pivot_pt]}" ]] &&
-#                   pivot_val=${COMPREPLY[pivot_pt]}
-#               for (( pivot_pt=last ; first<pivot_pt ;)) do
-#                   [[ ${COMPREPLY[first]} < $pivot_val ]] && { (( ++first )) ; continue ; }
-#                   [[ ${COMPREPLY[pivot_pt]} < $pivot_val ]] || { (( --pivot_pt )) ; continue ; }
-#                   __zc__swap first pivot_pt
-#               done
-#               partitions[npart]=pivot_pt  # replace ToS
-#               partitions[npart++]=last+1  # push onto stack
-#           fi
-#       done
-#       __zcdebug sortmain -@0 'post-sort:' -@ '\n %q' "${COMPREPLY[@]}"
-#       __zc_unique
-#   }
-
-#   # sort COMPREPLY[] using a top-down heapsort, and then remove duplicates
-#
-#   __zc_sort() {
-#       local i j k n=${#COMPREPLY[@]} t
-#       __zcdebug sortmain -@1 'pre-sort %u:' $n -@ '\n %q' "${COMPREPLY[@]}"
-#       for (( i=2 ; i<=n ; ++i )) do
-#           t=${COMPREPLY[i-1]}
-#           for (( j=i ; (k=j>>1)>=1 ; j=k )) do
-#               [[ $t > ${COMPREPLY[k-1]} ]] || break
-#               COMPREPLY[j-1]=${COMPREPLY[k-1]}
-#           done
-#           (( j!=i )) && COMPREPLY[j-1]=$t
-#       done
-#       __zcdebug sortmain -@1 'heaped  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
-#       for (( i=n ; i>0 ;)) do
-#           t=${COMPREPLY[i-1]}
-#           COMPREPLY[i-1]=${COMPREPLY[0]}
-#           ((--i))
-#           for (( j=1 ; (k=j<<1)<=i ; j=k )) do
-#               if  ((k<i)) &&
-#                   [[ ${COMPREPLY[k]} > $t ]]
-#               then
-#                   [[ ${COMPREPLY[k]} > ${COMPREPLY[k-1]} ]] && ((++k))
-#               else
-#                   [[ ${COMPREPLY[k-1]} > $t ]] || break
-#               fi
-#               COMPREPLY[j-1]=${COMPREPLY[k-1]}
-#           done
-#           COMPREPLY[j-1]=$t
-#       done
-#       __zcdebug sortmain -@1 'sorted  %u:' ${#COMPREPLY[@]} -@ '\n %q' "${COMPREPLY[@]}"
-#       __zc_unique
-#   }
 
     # sort COMPREPLY[] using a bottom-up heapsort and simultaneously remove duplicates
 
     __zc_sort() {
         local i j k n=${#COMPREPLY[@]} o t u
         __zcdebug sortmain \
-            -@1 'sort.start %u items' $n \
+            -@1 'sort.start %u items' "$n" \
             -@ '\n %q' "${COMPREPLY[@]}"
         for (( i=2 ; i<=n ; ++i )) do
             t=${COMPREPLY[n-i]}
@@ -512,9 +505,6 @@ fi
             -@ '\n %q' "${COMPREPLY[@]}"
     }
 
-#   # If COMPREPLY is already sorted...
-#   __zc_sort() { :; }
-
     #
     # Add newline-delimited items from a string to the COMPREPLY array
     #
@@ -536,7 +526,7 @@ fi
     #
     __zc_gen() {
         local _zc_list
-        __zcdebug gen -@0 'ZCGEN START' -@ [] "$@"
+        __zcdebug gen -@0 'ZCGEN START'
         COMPREPLY=()
         if (( ${#_zc_genfunc[@]} ))
         then
@@ -571,8 +561,9 @@ fi
         fi
 
         __zc_sort       # sort COMPREPLY[] and remove duplicates
-        # count of items, used in lots of places
-        (( _zc_num_items = ${#COMPREPLY[@]} ))
+
+        # count of items & last item, used in lots of places
+        (( _zc_num_items = ${#COMPREPLY[@]}, _zc_last_item = _zc_num_items-1 ))
         # find maximum column width, in _zc_max_item_width
         for (( _zc_max_item_width = 0, _zcj = 0 ; _zcj < _zc_num_items ; ++_zcj )) do
             (( _zc_max_item_width > ${#COMPREPLY[_zcj]} || ( _zc_max_item_width = ${#COMPREPLY[_zcj]} ) ))
@@ -585,18 +576,29 @@ fi
     __zc_get_term_size() {
         read -r   LINES            COLUMNS _   < <( stty size     2>/dev/null ) ||
         { read -r LINES && read -r COLUMNS ; } < <( tput -S <<<$'lines\ncols' )
+        (( _zc_scrn_cols -= __zc_RightMargin ))
         _zc_resize=1
     }
 
     __zc_getkey() {
+        local -a _zc_timeout=()
+        (($1)) && _zc_timeout=( "$__zc_read_t01" )
         local __zgk_chr
         IFS= \
-        read -rs -d '' $__zc_read_n1 _zc_key || return $?
+        read -rs -d '' "$__zc_read_n1" "${_zc_timeout[@]}" _zc_key || {
+            local _zc_exitcode=$?
+            if ((_zc_exitcode & 128))
+            then
+                _zc_key=REDRAW
+                return 0
+            fi
+            return $((_zc_exitcode))
+        }
         while
             case "$_zc_key" in
             ('')  _zc_key=$'\n' ; break ;;          # compensate for bug in "read"
             ( $'\e[M'??? ) break ;;                 # mouse report
-            ( $'\e' | $'\e[' | $'\e['[?O] | $'\e['*[\;0-9] | $'\e[M'* ) ;;
+            ( $'\e' | $'\e'[\[O] | $'\e['[?O] | $'\e['*[\;0-9] | $'\e[M'* ) ;;
             ( [$'\xc0'-\$'xfe'] \
             | [$'\xe0'-\$'xfe'][$'\x80'-$'\xbf'] \
             | [$'\xf0'-\$'xfe']?[$'\x80'-$'\xbf'] \
@@ -606,7 +608,7 @@ fi
             (*) break ;;
             esac
             IFS= \
-            read -rs -d '' $__zc_read_n1 $__zc_read_t01 __zgk_chr
+            read -rs -d '' "$__zc_read_n1" "$__zc_read_t01" __zgk_chr
         do
             [[ -z "$__zgk_chr" ]] && __zgk_chr=' '  # compensate for bug in "read" ?
             _zc_key="$_zc_key$__zgk_chr"
@@ -619,8 +621,9 @@ fi
 # of how part 2 returns
 #
 _zcomp() {
-    local _zc_savedash=$-
+    local _zc_rc=$? _zc_savedash=${-//[iloprs]}
     set +x
+    local _zc_undotrap=$( trap -p SIGINT SIGQUIT SIGWINCH )
 
     if (( __zc_xtrace_mode > 0 )) ||
      { (( __zc_xtrace_mode == 0 )) && [[ $_zc_savedash = *x* ]] ;}
@@ -629,14 +632,71 @@ _zcomp() {
         set -x
     fi
 
-    local _zc_xtrap=$( trap -p SIGINT SIGQUIT SIGWINCH )
-
     _zcomp2 "$@" 2>&7
 
-    # revert signal handlers
-    eval "$_zc_xtrap"
+    # Revert signal handlers
+    eval "$_zc_undotrap"
+    _zc_rc=$?
 
-    set ${-:++$-} ${_zc_savedash:+-$_zc_savedash}
+    # Revert the « set » options.
+    # Options -i, -l, -p, -r & -s can only be set at invocation and not unset.
+    # Option -o takes a parameter and should not be present, but will break if
+    # it is.
+    # (It turns out that « set +${-//[iloprs]} -$oldopts » works even if $- or
+    # $oldopts is empty, but it's undocumented so don't rely on it.)
+    local _zc_undodash=${-//[iloprs]}
+    set ${_zc_undodash:++$_zc_undodash} ${_zc_savedash:+-$_zc_savedash} --
+    return $((_zc_rc))
+}
+
+__zc_item() {
+    local -i _zci=$1 _zc_selected=$2 _zc_flowmode=$(($#>=3)) _zc_firstcol=$3 _zc_lastcol=$4
+    local -i _zc_row _zc_dcol
+    if ((!_zc_flowmode))
+    then
+        (( _zc_row  = _zci%_zc_num_rows,
+           _zc_dcol = _zci/_zc_num_rows - _zc_col_offset ))
+        # restore cursor position
+        printf %s "$__zc_cRestCursor"
+        # move down to item row (row 0 is the one after the command line)
+        __zc_cMoveD $(( _zc_row+1 ))
+        # move to left margin
+        printf '\r'
+        # move right to item column
+        __zc_cMoveR $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols)+__zc_LeftMargin ))
+    elif (( _zc_firstcol ))
+    then
+        # left margin on each line
+        printf '%*s\r' $(( __zc_LeftMargin )) ''
+        __zc_cMoveR $(( __zc_LeftMargin ))
+    fi
+    local _zct="${COMPREPLY[_zci]}"
+    # prune to fit, if necessary
+    _zct=${_zct:0:_zc_col_width}
+    # highlighted or plain?
+    if (( _zc_selected ))
+    then printf %s "$__zc_cSelect"
+    else printf %s "$__zc_cNormal"
+    fi
+    # show current item,
+    printf "%s" "$_zct"
+    # back to normal text
+    printf "%s" "$__zc_cEnd"
+    # if last column, erase remainder of line
+    (( _zc_lastcol )) && printf %s "$__zc_cClearEoL"
+    if (( !_zc_flowmode ))
+    then
+        # move cursor back to start of item, left by (_zc_col_width+__zc_PaddingCols-1),
+        __zc_cMoveL $(( ${#_zct} ))
+      # # move cursor back to command line
+      # __zc_cMoveU $(( _zc_row+1 ))
+      # printf '\r'
+      # printf %s "$__zc_cRestCursor"
+    elif (( !_zc_lastcol ))
+    then
+        # move cursor on to next item on this line
+        printf '%*s' $(( _zc_col_width - ${#_zct} + __zc_PaddingCols )) ''
+    fi
 }
 
 #
@@ -651,15 +711,15 @@ _zcomp2() {
     local -a _zc_genargs=("${@}")
 
     local _zc_button _zc_key
-    local -i _zc_first=1 _zc_redraw _zc_resize=1
-    local -i _zc_col_offset _zc_col_width _zc_cur _zc_dcol _zc_mcol _zc_mrow
-    local -i _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
-    local -i _zc_prev_num_rows _zc_row _zc_saved_row _zc_saved_col _zc_scrn_cols
-    local -i _zc_scrn_rows _zc_max_item_width _zcj _zck _zcl
+    local -i _zc_first=1 _zc_redraw_needed _zc_redraw_now _zc_resize=1
+    local -i _zc_col_offset _zc_col_width _zc_cur _zc_mcol _zc_mrow
+    local -i _zc_last_item _zc_last_dcol _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
+    local -i _zc_prev_num_rows _zc_saved_row _zc_scrn_cols _zc_scrn_rows
+    local -i _zc_max_item_width _zcj _zck _zcl
 
     (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_rows=-1 ))
 
-    __zc_gen && [[ "${COMP_TYPE:-9}" = 9 ]] || {
+    { __zc_gen && [[ "${COMP_TYPE:-9}" = 9 ]] ; } || {
         # Avoid showing menu if either
         # (a) insufficient items, or
         # (b) non-immediate COMP_TYPE
@@ -685,59 +745,72 @@ _zcomp2() {
             then
                 # resort to using tput and/or stty to get values
                 __zc_get_term_size &&
-                    continue                    # go back and recompute based on $COLUMNS & $LINES
+                    continue                    # go back and recompute based on new COLUMNS & LINES
             fi
             # compute tabular rows & columns, then trigger redraw
             (( _zc_scrn_rows <= __zc_MaxRows    || ( _zc_scrn_rows = __zc_MaxRows ),
                _zc_scrn_cols <= __zc_MaxCols    || ( _zc_scrn_cols = __zc_MaxCols ),
                _zc_col_width = _zc_max_item_width,
-               _zc_col_width <= _zc_scrn_cols-__zc_ReserveCols || ( _zc_col_width = _zc_scrn_cols-__zc_ReserveCols ),
-               _zc_num_dcols = (_zc_scrn_cols-__zc_ReserveCols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
+               _zc_col_width <= _zc_scrn_cols || ( _zc_col_width = _zc_scrn_cols ),
+               _zc_num_dcols = (_zc_scrn_cols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
                _zc_num_dcols <= _zc_num_items   || ( _zc_num_dcols = _zc_num_items ),
                _zc_num_dcols > 0                || ( _zc_num_dcols = 1 ),
-               _zc_num_rows = 1 + (_zc_num_items-1) / _zc_num_dcols,
+               _zc_last_dcol = _zc_num_dcols-1,
+               _zc_num_rows = 1 + _zc_last_item / _zc_num_dcols,
                _zc_num_rows < _zc_scrn_rows     || ( _zc_num_rows = _zc_scrn_rows-1 ),
                _zc_num_rows > 0                 || ( _zc_num_rows = 1 ),
-               _zc_num_vcols = 1 + (_zc_num_items-1) / _zc_num_rows,
+               _zc_num_vcols = 1 + _zc_last_item / _zc_num_rows,
                _zc_resize = 0,
-               _zc_redraw = 1 ))
+               _zc_redraw_needed = 1 ))
         fi
 
-        (( _zc_row  = _zc_cur%_zc_num_rows,
-           _zc_vcol = _zc_cur/_zc_num_rows,
-           _zc_dcol = _zc_vcol - _zc_col_offset ))
+        # scroll sideways to keep current item in view, by updating _zc_col_offset
+        (( _zcj = _zc_cur/_zc_num_rows - _zc_last_dcol,
+           _zc_col_offset < _zcj && (
+           _zc_col_offset = _zcj, _zc_redraw_needed = 1 ),
+           _zcj = _zc_cur/_zc_num_rows,
+           _zc_col_offset > _zcj && (
+           _zc_col_offset = _zcj, _zc_redraw_needed = 1 )))
 
-        if (( _zc_dcol >= _zc_num_dcols ))
-        then
-            (( _zc_col_offset += _zc_dcol-_zc_num_dcols+1,
-               _zc_dcol = _zc_vcol - _zc_col_offset,
-               _zc_redraw = 1 ))
-        fi
-        if (( _zc_dcol < 0 ))
-        then
-            (( _zc_col_offset += _zc_dcol,
-               _zc_dcol = _zc_vcol - _zc_col_offset,
-               _zc_redraw = 1 ))
-        fi
-
-        if ((_zc_redraw))
+        if ((_zc_redraw_now || _zc_redraw_needed && !__zc_has_read_alarm_status || _zc_prev_num_rows != _zc_num_rows || _zc_first))
         then
             # save starting cursor position
-            ((_zc_first)) && printf '\e7'
+            ((_zc_first)) && printf %s "$__zc_cSaveCursor"
 
+            # display the menu
+            (( _zck = (_zc_num_dcols+_zc_col_offset)*_zc_num_rows,
+               _zck > _zc_num_items && (
+               _zck = _zc_num_items )))
             for (( _zcj = 0 ; _zcj < _zc_num_rows ; _zcj++ )) do
-                printf '\r\n\e[K'
-                for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zc_num_items && _zcl < (_zc_num_dcols+_zc_col_offset)*_zc_num_rows ; _zcl += _zc_num_rows )) do
-                    printf " %s%-$((_zc_col_width+__zc_PaddingCols-2)).${_zc_col_width}s%s " "$__zc_cNormal" "${COMPREPLY[_zcl]}" "$__zc_cEnd"
+                printf '\r\n'
+                for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zck ; _zcl += _zc_num_rows )) do
+                    __zc_item $(( _zcl )) $(( _zcl == _zc_cur )) \
+                              $(( _zcl == _zcj+_zc_col_offset*_zc_num_rows )) \
+                              $(( _zcl >= _zck-_zc_num_rows ))
                 done
+                printf %s "$__zc_cClearEoL"
             done
 
-            for ((; _zcj < _zc_prev_num_rows ; _zcj++ )) do
-                printf '\r\n\e[K'
-            done
-            # this can't happen "first time" (because _zc_prev_num_rows is -1)
             if (( _zc_prev_num_rows > _zc_num_rows ))
-            then printf "\e[%uA" $((_zc_prev_num_rows-_zc_num_rows))
+            then
+                # handle menu shrinkage: erase extra lines, then move cursor back up
+                for ((; _zcj < _zc_prev_num_rows ; _zcj++ )) do
+                    printf '\r\n'
+                    printf %s "$__zc_cClearEoL"
+                done
+                __zc_cMoveU $((_zc_prev_num_rows-_zc_num_rows))
+            elif ((_zc_prev_num_rows < _zc_num_rows))
+            then
+                # handle menu expansion (including initially)
+                # re-save cursor position after compensating for scrolling:
+                #  - go to previous saved cursor position
+                #  - move $_zc_num_rows down (truncated to bottom line)
+                #  - move $_zc_num_rows up
+                #  - save new cursor position
+                printf %s "$__zc_cRestCursor"
+                __zc_cMoveD _zc_num_rows
+                __zc_cMoveU _zc_num_rows
+                printf %s "$__zc_cSaveCursor"
             fi
             (( _zc_prev_num_rows = _zc_num_rows ))
 
@@ -745,57 +818,54 @@ _zcomp2() {
                 # Ask Xterm to report current cursor position; this will cause a
                 # "current position" «CSI?row;colR» response that will be read in the
                 # main loop
-                printf '\e[?6n'
+                printf %s "$__zc_cReportCursor"
                 # Turn on mouse tracking
-                printf '\e[?1003h'
+                printf %s "$__zc_cStartTrackingMouse"
             }
 
-            # re-save cursor position after any scrolling:
-            #  - go to previous saved cursor position
-            #  - move $_zc_num_rows down (which will be truncated if scrolling has occurred)
-            #  - move $_zc_num_rows up
-            #  - save new cursor position
-            ((_zc_first)) && printf "\e8\e[%uB\e[%uA\e7" $_zc_num_rows $_zc_num_rows
-
             _zc_first=0
-            _zc_redraw=0
+            _zc_redraw_needed=0
+            _zc_redraw_now=0
         fi
 
         #
         # Highlight currently selected item:
         #
-        # restore cursor position, left column, down (_zc_row+1), column
-        # (_zc_dcol*(_zc_col_width+2)+1), left (_zc_col_width+1)
-        #
-        printf "\e8\r\e[%uB\e[%uG %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uD" \
-                $(( _zc_row+1 )) \
-                $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols)+1 )) \
-                "$__zc_cSelect" \
-                "${COMPREPLY[_zc_cur]}" \
-                "$__zc_cEnd" \
-                $(( _zc_col_width+__zc_PaddingCols-1 ))
+        __zc_item $((_zc_cur)) 1
 
-        __zc_getkey     # returns value in _zc_key
+        __zc_getkey $((_zc_redraw_needed && __zc_has_read_alarm_status))    # returns value in _zc_key
     do
         __zcinfo -@ 'Got key %q' "$_zc_key"
 
-        printf "\e[%uD %s%-$_zc_col_width.${_zc_col_width}s%s \e[%uA\r" 1 "$__zc_cNormal" "${COMPREPLY[_zc_cur]}" "$__zc_cEnd" $(( _zc_row+1 ))
+        #
+        # Redraw currently selected item without highlighting
+        #
+        __zc_item $((_zc_cur)) 0
 
         # Terminals don't usually produce the ;1~ variant, but just make sure
         _zc_key=${_zc_key/';1~'/'~'}
 
         case "$_zc_key" in
 
-        ## Capture answer to initial "report cursor position" request
-        ($'\e['[?0-9]*\;*R) _zc_key=${_zc_key//[^;0-9]/}\; _zc_saved_row=${_zc_key%%\;*} _zc_key=${_zc_key#*\;} _zc_saved_col=${_zc_key%%\;*} ;;
+        # no keypress immediately available when _zc_redraw_needed
+        (REDRAW)            _zc_redraw_now=1 ;;
 
-        ## Enter / Escape / SIGINT / SIGQUIT
+        # ctrl-L to request redrawing
+        ($'\f')             _zc_redraw_now=1 ;;
+
+        ## Capture answer to initial "report cursor position" request
+        ($'\e['[?0-9]*\;*R) _zc_key=${_zc_key//[^;0-9]/}\; _zc_saved_row=${_zc_key%%\;*} _zc_key=${_zc_key#*\;} ;;
+
+        ## Space / Enter to confirm item
         (' '|$'\r'|$'\n')   break ;;
-        ($'\e'|SIG*) _zc_cur=-1 ; break ;;
+        ## Escape / Menu / SIGINT / SIGQUIT to abort
+        ($'\e'|$'\e[29~'|SIG*)
+                            _zc_cur=-1
+                            break ;;
 
         ## Mouse tracking
-        ($'\e[M`'*)         (( _zc_col_offset > 0                             && --_zc_col_offset )) ;;  # 64 mouse scroll up
-        ($'\e[Ma'*)         (( _zc_col_offset < _zc_num_vcols-_zc_num_dcols-1 && ++_zc_col_offset )) ;;  # 65 mouse scroll down
+        ($'\e[M`'??)        (( _zc_col_offset > 0                             && --_zc_col_offset )) ;;  # 64 mouse scroll up
+        ($'\e[Ma'??)        (( _zc_col_offset < _zc_num_vcols-_zc_num_dcols-1 && ++_zc_col_offset )) ;;  # 65 mouse scroll down
         ($'\e[M'???)        _zc_button="${_zc_key:3:1}"
                             printf -v _zc_mcol '%u-32&255' "'${_zc_key:4:1}"
                             printf -v _zc_mrow '%u-32&255' "'${_zc_key:5:1}"
@@ -806,8 +876,8 @@ _zcomp2() {
                                _zck = _zc_mcol / (_zc_col_width+__zc_PaddingCols) + _zc_col_offset,
                                _zcj >= 0 && _zcj < _zc_num_rows &&
                                _zck >= 0 && _zck < _zc_num_dcols &&
-                               _zcj + _zc_num_rows*_zck < _zc_num_items &&
-                             ( _zc_cur = _zcj + _zc_num_rows*_zck ) ))
+                               ( _zcj += _zc_num_rows*_zck ) < _zc_num_items &&
+                             ( _zc_cur = _zcj ) ))
                             :
                             [[ "$_zc_button" = ' ' ]] && break
                             ;;
@@ -816,40 +886,56 @@ _zcomp2() {
         ($'\e[1;2A')        (( _zc_cur -= _zc_cur % _zc_num_rows )) ;;
         # shift-down - bottom of column
         ($'\e[1;2B')        (( _zc_cur += _zc_num_rows-1 - _zc_cur % _zc_num_rows,
-                               _zc_cur < _zc_num_items         || ( _zc_cur = _zc_num_items-1 ) )) ;;
+                               _zc_cur <= _zc_last_item        || ( _zc_cur = _zc_last_item ) )) ;;
         # shift-right - right of row
-        ($'\e[1;2C')        (( _zc_cur += (_zc_cur / _zc_num_rows - 1 - (_zc_cur % _zc_num_rows > (_zc_num_items-1) % _zc_num_rows)) * _zc_num_rows )) ;;
+        ($'\e[1;2C')        (( _zc_cur += (_zc_cur / _zc_num_rows - 1 - (_zc_cur % _zc_num_rows > _zc_last_item % _zc_num_rows)) * _zc_num_rows )) ;;
         # shift-left - left of row
         ($'\e[1;2D')        (( _zc_cur %= _zc_num_rows )) ;;
 
         # up, shift-tab
-        ($'\e[A'|$'\e[Z')   (( _zc_cur--,
-                               _zc_cur >= 0                  || ( _zc_cur = _zc_num_items-1 ) )) ;;
+        ($__zc_cKeyUp|$'\e'[\[O][AZ])
+                            (( _zc_cur--,
+                               _zc_cur >= 0             || ( _zc_cur = _zc_last_item ) )) ;;
         # down, tab
-        ($'\e[B'|$'\t')     (( _zc_cur++,
-                               _zc_cur < _zc_num_items         || ( _zc_cur = 0 ) )) ;;
+        ($__zc_cKeyDn|$'\e'[\[O]B|$'\t')
+                            (( _zc_cur++,
+                               _zc_cur <= _zc_last_item || ( _zc_cur = 0 ) )) ;;
         # right
-        ($'\e[C')           (( _zc_cur += _zc_num_rows,
-                               _zc_cur < _zc_num_items || ( _zc_cur = (_zc_cur+1) % _zc_num_rows ) )) ;;
+        ($__zc_cKeyRt|$'\e'[\[O]C)
+                            (( _zc_cur += _zc_num_rows,
+                               _zc_cur <= _zc_last_item || ( _zc_cur = (_zc_cur+1) % _zc_num_rows ) )) ;;
         # left
-        ($'\e[D')           (( _zc_cur -= _zc_num_rows,
-                               _zc_cur >= 0          || ( _zc_cur += _zc_num_rows*_zc_num_vcols-1,
-                                                          _zc_cur < _zc_num_items || ( _zc_cur = _zc_num_items - 1 ) ) )) ;;
+        ($__zc_cKeyLf|$'\e'[\[O]D)
+                            (( _zc_cur < _zc_num_rows && (
+                                    _zc_cur = (_zc_cur          + _zc_num_rows
+                                            - (_zc_num_items+1) % _zc_num_rows)
+                                                                % _zc_num_rows - 1
+                                            + (_zc_num_items+1) ),
+                               _zc_cur -= _zc_num_rows,
+                               _zc_cur >= 0 && _zc_cur < _zc_num_items
+                            )) || __zcerror -@ 'ERROR: key-left produced out-of-range item number %u; expecting between 0 and %u\n' $((_zc_cur)) $((_zc_last_item))
+                            ;;
 
         # page-up - top of column, or prev column
-        ($'\e[5~')          (( _zc_cur -= ( _zc_cur > 0 ),
+        ($__zc_cKeyPU|$'\e[5~')
+                            (( _zc_cur -= ( _zc_cur > 0 ),
                                _zc_cur -= _zc_cur % _zc_num_rows )) ;;
         # page-down - bottom of column, or next column
-        ($'\e[6~')          (( _zc_cur++,
+        ($__zc_cKeyPD|$'\e[6~')
+                            (( _zc_cur++,
                                _zc_cur += _zc_num_rows-1 - _zc_cur % _zc_num_rows,
-                               _zc_cur < _zc_num_items         || ( _zc_cur = _zc_num_items-1 ) )) ;;
+                               _zc_cur < _zc_num_items         || ( _zc_cur = _zc_last_item ) )) ;;
         # home - first item
-        ($'\e[1~'|$'\e[H')  (( _zc_cur = 0 )) ;;
+        ($__zc_cKeyHm|$'\e[1~'|$'\e'[\[O]H)
+                            (( _zc_cur = 0 )) ;;
         # end - last item
-        ($'\e[4~'|$'\e[F')  (( _zc_cur = _zc_num_items-1 )) ;;
+        ($__zc_cKeyEn|$'\e[4~'|$'\e'[\[O]F)
+                            (( _zc_cur = _zc_last_item )) ;;
 
         # backspace
-        ($'\x08'|$'\x7f')   ((COMP_POINT)) || break
+        ($'\x08'|$'\x7f')
+                            # shellcheck disable=SC2086
+                            ((COMP_POINT)) || break
                             [[ -n ${COMP_WORDS[COMP_CWORD]} ]] || break
                             ((--COMP_POINT)) ; COMP_LINE="${COMP_LINE:0:COMP_POINT-1}${COMP_LINE:COMP_POINT}"
                             __zc_gen || break
@@ -864,7 +950,7 @@ _zcomp2() {
                             _zc_resize=1 ;;
 
         esac
-        (( _zc_cur < _zc_num_items || ( _zc_cur = _zc_num_items-1 ),
+        (( _zc_cur <= _zc_last_item || ( _zc_cur = _zc_last_item ),
            _zc_cur >= 0 || ( _zc_cur = 0 ) ))
     done
 
@@ -875,15 +961,17 @@ _zcomp2() {
 
     ((__zc_MouseTrack)) && {
         # Turn off mouse tracking
-        printf '\e[?1003l'
+        printf %s "$__zc_cStopTrackingMouse"
     }
 
+    printf %s "$__zc_cRestCursor"
     for (( _zcj=0 ; _zcj<_zc_num_rows ; _zcj++ )) do
-        printf '\n\e[2K'
+        printf '\r\n'
+        printf %s "$__zc_cClearEoL"
     done
 
     # reset cursor position
-    printf '\e8'
+    printf %s "$__zc_cRestCursor"
 
     __zcdebug zcomp -@0 'Finished completion: COMPREPLY=' -@ [] "${COMPREPLY[@]}"
 }
@@ -894,7 +982,7 @@ _zcomp2() {
 #
 # If invoked with '-p' or '-r' or '-F __zcwrap_*', or with no args at all, just
 # pass through to the builtin.  Otherwise synthesize a wrapper function, and
-# call builtin complete with -F to call it.
+# call « builtin complete -F » with it.
 #
 # The -C and -F options have to be handled directly by the wrapper, because
 # they aren't usable via compgen. According to the bash man page:
@@ -904,7 +992,7 @@ _zcomp2() {
 #       useful values."
 #
 # Items that should only take effect after _zcomp returns should be handed
-# to complete:
+# to « builtin complete »:
 #       -o filenames
 #       -o noquote
 #       -o nospace
@@ -981,7 +1069,7 @@ complete() {
         builtin complete "${_zc_orig_args[@]}" || {
             _zc_rc=$?
             __zcerror -@1 'FAILED %x ' $? -@ [] builtin complete "${_zc_orig_args[@]}"
-            return $_zc_rc
+            return $((_zc_rc))
         }
     else
         # Work around bug in « complete -p » that fails to show the empty arg
@@ -1012,12 +1100,12 @@ complete() {
         eval "$_zc_wrapdef" || {
             _zc_rc=$?
             __zcerror -@2 'FAILED %x define wrapper %q' $? "$_zc_wrapper"
-            return $_zc_rc
+            return $((_zc_rc))
         }
         builtin complete -F "$_zc_wrapper" "${_zc_specargs[@]}" || {
             _zc_rc=$?
             __zcerror -@1 'FAILED %x ' $? -@ [] builtin complete -F "$_zc_wrapper" "${_zc_specargs[@]}"
-            return $_zc_rc
+            return $((_zc_rc))
         }
     fi
 }
@@ -1025,9 +1113,8 @@ complete() {
 #
 # Install the _zcomp handler over the top of every previously-installed handler.
 #
-# Having defined "complete" as a function, simply re-read the output of
-# "complete -p", which has always (since bash version 2.04) output in a format
-# intended to be read in again.
+# After defining « complete » as a function, simply re-read the output of
+# « complete -p », which is in a format intended to be read in again.
 #
 
 (( __zc_HaveReloadedAllCompletions++ )) ||
@@ -1046,35 +1133,44 @@ unset "${!_zc_@}"
 
 return 0
 
-#($'\e[M '??)               ;;  # 0  mouse button 1 down
-#($'\e[M!'??)               ;;  # 1  mouse button 2 down
-#($'\e[M"'??)               ;;  # 2  mouse button 3 down
-#($'\e[M@'??)               ;;  # 32 mouse button 1 drag
-#($'\e[MA'??)               ;;  # 33 mouse button 2 drag
-#($'\e[MV'??)               ;;  # 54 mouse button 3 drag
-#($'\e[M#'??|$'\e[M\x81'??) ;;  # 3,97 mouse movement or button release
+#
+# After sending \e[?1003h and before sending \e[?1003l, mouse events are
+# presented as \e[M followed by 3 bytes, F+32, X+32, Y+32.
+#
+# F encodes:
+#   (( F & 64 )) indicates use of a scroll wheel, in which case
+#       (( F & 1 )) indicates down (otherwise up)
+#   otherwise:
+#       (( F & 3 )) button down (0, 1 or 2) or button release (3)
+#       (( F & 32 )) indicates movement without changing button state
+#
+# F == 35 (first byte 'C') indicates that the mouse has moved while no button
+# was held down, whereas F == 3 (first byte '#') means a button has been
+# released, but does not tell you which one. If multiple buttons are held down
+# together, each release will be reported as F==3.
+#
+# X,Y denotes the character cell the mouse cursor is over; 0,0 is top-left.
+#
 
 #
-# home  \e[1~
+# up    \eOA  \e[A
+# down  \eOB  \e[B
+# right \eOC  \e[C
+# left  \eOD  \e[D
+#
+# home  \e[1~ \e[H
 # ins   \e[2~
 # del   \e[3~
-# end   \e[4~
+# end   \e[4~ \e[F
 # pgup  \e[5~
 # pgdn  \e[6~
 #
-# ;n modifier has n = 1 plus the sum of
-#   1 for shift
-#   2 for alt
-#   4 for ctrl
-# so
-#  ;1   plain (always omitted, but defined with value 1 to follow the general rule about an omitted values always defaulting to 1)
-#  ;2   shift
-#  ;3   ctrl
-#  ;4   ctrl+shift
-#  ;5   alt
-#  ;6   shift+alt
-#  ;7   ctrl+alt
-#  ;8   ctrl+shift+alt
+# menu  \e[29~
+#
+# The sequences ending in ~ can take a ;n modifier with n between 2 & 8, where:
+#   (( n - 1 & 1 )) indicates Shift
+#   (( n - 1 & 2 )) indicates Alt
+#   (( n - 1 & 4 )) indicates Ctrl
 #
 
 # vim: set fenc=utf8 :
