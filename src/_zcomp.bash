@@ -195,7 +195,7 @@ then
     # seconds (based on when SECONDS changes), or whenever the format («$*»)
     # changes.
     __zc_ts() {
-        if (( __zcpsec + __zc_DateTicks <= SECONDS )) || [[ "$*" != "$__zcpfmt" ]]
+        if (( __zcpsec + __zc_DateTicks <= SECONDS || __zcpsec > SECONDS )) || [[ "$*" != "$__zcpfmt" ]]
         then
             (( __zcpsec = SECONDS ))
             __zcpfmt="$*"
