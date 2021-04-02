@@ -135,7 +135,7 @@ declare -a _zc_atexit=()
 # Compensate for shortcomings of earlier versions of Bash
 #
 
-#__zc_has_localdash=1               # can do « local - »
+__zc_can_localize_flags=1           # can do « local - »
 __zc_has_read_alarm_status=1        # « read -t$seconds » returns SIGALRM status on timeout
 __zc_has_varredir=1                 # can do « {var}> ... » redirection
 __zc_has_xtracefd=1                 # output triggered by « set -x » can go somewhere other than stderr
@@ -205,16 +205,17 @@ then
     }
 fi
 
-#if (( __zc_BASH_VERSION < 4004000 ))
-#then
-  # # Note [4.4]
-  # #
-  # # Bash v4.4 added support for « local - »
-  # # For older versions of bash, use « local _zc_savedash=$- » and then
-  # # « set ${-:++${-//[iloprs]}} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
-  # #
-  # __zc_has_localdash=0
-#fi
+if (( __zc_BASH_VERSION < 4004000 ))
+then
+    # Note [4.4]
+    #
+    # Bash v4.4 added support for « local - »
+    # For older versions of bash, use « local _zc_savedash=$- » and then
+    # « set ${-:++${-//[iloprs]}} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
+    #
+    # (Currently we don't make any use of this feature.)
+    __zc_can_localize_flags=0
+fi
 
 ################################################################################
 #
