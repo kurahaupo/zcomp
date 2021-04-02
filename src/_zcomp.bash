@@ -236,48 +236,53 @@ __zclog() {
     [[ -e /dev/fd/7 || ! -d /dev/fd ]] && { # avoid complaints about bad filedescriptors
     __zc_ts %F,%T
     printf ' [%u] ' $$
-    local -i argc=$# n_shift=$# newline=1
-    local fmt n
+    local arg argc fmt n_shift pre post sep empty
     while [[ $1 = '-@'* ]] ; do
-        n=${1#-?}
+        arg=${1#-?}
         shift
-        case $n in
-        @|'')       n_shift=$# argc=$# ;;
-        «)          for ((n_shift=1;n_shift<=$#;++n_shift)) do [[ ${!n_shift} = » ]] && break ; done ; argc='n_shift-1' ;;
-        n)          newline=0 ; continue ;;
+        n_shift=argc argc=$# fmt= pre= post= sep=, empty=
+
+        case $arg in
+        '') ;;
         *[!0-9]*)   break ;;
-        *)          n_shift=n argc=n_shift ;;
+        *)          argc=$((arg+1)) ;;
         esac
 
         fmt=$1
+        ((--argc))
         shift
 
         case $fmt in
-        [\[\(\{]?(%?)[\]\)\}])
-            pre=${fmt::1} post=${fmt:${#fmt}-1:1} fmt=${fmt:1:${#fmt}-2}
-            fmt=${fmt:-\ %q}
-            sep=${fmt%%\%*} fmt=${fmt#"$sep"}
+        (*\%*)  empty=- ;;
+        ([])    pre=\[ post=\] sep=\, empty=\- fmt=%q ;;
+        (*)     empty=$fmt fmt+==%q ;;
+        esac
 
+        if ((argc==0))
+        then
+            # shellcheck disable=SC2059
+            printf "$empty"
+        else
             printf %s "$pre"
-            if ((argc>0))
+            if [[ $sep ]]
             then
                 # shellcheck disable=SC2059
-                printf "$fmt" "${@:1:1}"
+                printf -- "$fmt" "${@:1:1}"
                 # shellcheck disable=SC2059
                 ((argc>1)) &&
-                printf "$sep$fmt" "${@:2:argc-1}"
+                printf -- "$sep$fmt" "${@:2:argc-1}"
+            else
+                # shellcheck disable=SC2059
+                printf -- "$fmt" "${@:1:argc}"
             fi
-            printf %s "$post" ;;
-        *)
-            # shellcheck disable=SC2059
-            printf "$fmt" "${@:1:argc}" ;;
-        esac
+            printf %s "$post"
+        fi
 
         # discard
         shift $(( 0<=n_shift && n_shift<=$# ? n_shift : $# ))
     done
-    printf '%s' "$*"
-    ((newline)) && printf '\n'
+    (($#)) && printf '\n\t%s' "$@"
+    printf '\n' "$*"
   } >&7 2>&1
     return $((_zc_r))
 }
@@ -484,9 +489,8 @@ fi
 
     __zc_sort() {
         local i j k n=${#COMPREPLY[@]} o t u
-        __zcdebug sortmain \
-            -@1 'sort.start %u items' "$n" \
-            -@ '\n %q' "${COMPREPLY[@]}"
+        __zcdebug sortmain -@1 'sort.start %u items' "$n" \
+                           -@ '\n %q' "${COMPREPLY[@]}"
         for (( i=2 ; i<=n ; ++i )) do
             t=${COMPREPLY[n-i]}
             for (( j=i ; (k=j>>1)>=1 ; j=k )) do
@@ -498,9 +502,8 @@ fi
                 COMPREPLY[n-j]=$t
             fi
         done
-        __zcdebug sortmain \
-            -@1 'sort.heaped  %u:' ${#COMPREPLY[@]} \
-            -@ '\n %q' "${COMPREPLY[@]}"
+        __zcdebug sortmain -@1 'sort.heaped  %u:' ${#COMPREPLY[@]} \
+                           -@ '\n %q' "${COMPREPLY[@]}"
         for (( i=n, o=0 ; i>0 ;)) do
             t=${COMPREPLY[n-i]}
             u=${COMPREPLY[n-1]}
@@ -524,9 +527,8 @@ fi
         for ((; o<n ; ++o )) do
             unset "COMPREPLY[o]"
         done
-        __zcdebug sortmain \
-            -@1 'sort.done  %u:' ${#COMPREPLY[@]} \
-            -@ '\n %q' "${COMPREPLY[@]}"
+        __zcdebug sortmain -@1 'sort.done  %u:' ${#COMPREPLY[@]} \
+                           -@ '\n %q' "${COMPREPLY[@]}"
     }
 
     #
@@ -556,31 +558,27 @@ fi
         then
             (( ${#_zc_genfunc[@]} == 1 )) || __zcdebug gen 'GENFUNC received more than one arg, putting the others last'
             "${_zc_genfunc[@]:0:1}" "${_zc_genargs[@]}" "${_zc_genfunc[@]:1}"
-            __zcdebug gen -@0 'GENFUNC' \
-                    -@« [] "${_zc_genfunc[@]}" » \
-                    -@« [] "${_zc_genargs[@]}" » \
-                    -@1 ' returned %x' $? \
-                    -@0 ' replied' \
-                    -@  [] "${COMPREPLY[@]}"
+            __zcdebug gen -@0 'ZCGEN FUNC ' \
+                          -@  [] "${COMPREPLY[@]}"
         fi
         if (( ${#_zc_gencmd[@]} ))
         then
             (( ${#_zc_gencmd[@]} == 1 )) || __zcdebug gen 'GENCMD received more than one arg; ignoring all but first'
             _zc_list=$( unset IFS ; eval "$_zc_gencmd$( printf ' %q' "${_zc_genargs[@]}" )" )
             __zcdebug gen -@1 'GENCMD (%q)' "$_zc_genfunc" \
-                    -@« [] "${_zc_genargs[@]}" » \
-                    -@1 'returned %x, replied ' $? \
-                    -@1 [] "$_zc_list"
+                          -@${#_zc_genargs[@]} [] "${_zc_genargs[@]}" \
+                          -@1 'returned %x, replied ' $? \
+                          -@1 [] "$_zc_list"
             __zc_genadd "$_zc_list"
         fi
         if (( ${#_zc_compgen_args[@]} ))
         then
             _zc_list=$( compgen -o nospace "${_zc_compgen_args[@]}" -- "${COMP_WORDS[COMP_CWORD]}" )
             __zcdebug gen -@0 'GENCOMPGEN' \
-                    -@1 [] "$_zc_genfunc" \
-                    -@« [] "${_zc_genargs[@]}" » \
-                    -@1 ' returned %x, replied' $? \
-                    -@  [] "$_zc_list"
+                          -@1 [] "$_zc_genfunc" \
+                          -@${#_zc_genargs[@]} [] "${_zc_genargs[@]}" \
+                          -@1 ' returned %x, replied' $? \
+                          -@  [] "$_zc_list"
             __zc_genadd "$_zc_list"
         fi
 
@@ -592,7 +590,8 @@ fi
         for (( _zc_max_item_width = 0, _zcj = 0 ; _zcj < _zc_num_items ; ++_zcj )) do
             (( _zc_max_item_width > ${#COMPREPLY[_zcj]} || ( _zc_max_item_width = ${#COMPREPLY[_zcj]} ) ))
         done
-        __zcdebug gen -@1 'ZCGEN END ' -@ [] "${COMPREPLY[*]}"
+        __zcdebug gen -@0 'ZCGEN END ' \
+                      -@ [] "${COMPREPLY[*]}"
         # Set return status so that _zcomp bails out if fewer than two options remain
         (( _zc_num_items > 1 )) && _zc_resize=1
     }
@@ -727,8 +726,10 @@ __zc_item() {
 # _zcomp part 2: generate completion list, show menu, accept user selection
 #
 _zcomp2() {
-    __zcdebug zcomp -@0 'Starting completion: args=' -@$# [] "$@" \
-            -@0 ' COMPREPLY=' -@ [] "${COMPREPLY[@]}"
+    __zcdebug zcomp -@0 'Starting completion: args=' \
+                    -@$# [] "$@" \
+                    -@0 ' COMPREPLY=' \
+                    -@ [] "${COMPREPLY[@]}"
     local -a _zc_genfunc=( "${@:2:$1}" )       ; shift $(($1+1))
     local -a _zc_gencmd=( "${@:2:$1}" )        ; shift $(($1+1))
     local -a _zc_compgen_args=( "${@:2:$1}" )  ; shift $(($1+1))
@@ -749,7 +750,8 @@ _zcomp2() {
         # (b) non-immediate COMP_TYPE
         __zcdebug zcomp \
                 -@2 'Early completion: TYPE=%s COUNT=%u' "$COMP_TYPE" "$_zc_num_items" \
-                -@0 COMPREPLY= -@ [] "${COMPREPLY[@]}"
+                -@0 ' COMPREPLY=' \
+                -@ [] "${COMPREPLY[@]}"
         return 0
     }
 
@@ -997,7 +999,8 @@ _zcomp2() {
     # reset cursor position
     printf %s "$__zc_cRestCursor"
 
-    __zcdebug zcomp -@0 'Finished completion: COMPREPLY=' -@ [] "${COMPREPLY[@]}"
+    __zcdebug zcomp -@0 'Finished completion: COMPREPLY=' \
+                    -@ [] "${COMPREPLY[@]}"
 }
 
 #
@@ -1034,7 +1037,8 @@ complete() {
     local -a _zc_specargs=()
     local -i _zc_passthru=$(($#==0)) _zc_rc
 
-    __zcdebug complete -@0 'START COMPLETE ' -@ [] "$@"
+    __zcdebug complete -@0 'START COMPLETE ' \
+                       -@ [] "$@"
 
     while (($#))
     do
@@ -1089,10 +1093,12 @@ complete() {
 
     if ((_zc_passthru))
     then
-        __zcdebug wrap -@0 'Making pass-thru completion ' -@ [] complete "${_zc_orig_args[@]}"
+        __zcdebug wrap -@0 'Making pass-thru completion ' \
+                       -@ [] complete "${_zc_orig_args[@]}"
         builtin complete "${_zc_orig_args[@]}" || {
             _zc_rc=$?
-            __zcerror -@1 'FAILED %x ' $? -@ [] builtin complete "${_zc_orig_args[@]}"
+            __zcerror -@1 'FAILED %x ' $? \
+                      -@ [] builtin complete "${_zc_orig_args[@]}"
             return $((_zc_rc))
         }
     else
@@ -1101,7 +1107,8 @@ complete() {
 
         local _zc_wrapper="${_zc_genfunc[*]} ${_zc_gencmd[*]} ${_zc_compgen_args[*]}"
         _zc_wrapper="__zcwrap_${_zc_wrapper//[^_0-9a-zA-Z.-]/___}"
-        __zcdebug wrap -@0 "Making wrapped completion " -@@ [] complete "${_zc_orig_args[@]}"
+        __zcdebug wrap -@0 "Making wrapped completion " \
+                       -@ [] complete "${_zc_orig_args[@]}"
 
         local _zc_wrapdef="$_zc_wrapper() { _zcomp"
         _zc__add() {
@@ -1119,8 +1126,9 @@ complete() {
         unset -f _zc__add
         _zc_wrapdef+=' "$@" ; }'
 
-        __zcdebug wrap -@1 '→define wrapper: %q\n' "$_zc_wrapdef"
-        __zcdebug wrap -@0 '→complete -F' -@ ' %q' "$_zc_wrapper" "${_zc_specargs[@]}"
+        __zcdebug wrap -@1 '→define wrapper: %q\n' "$_zc_wrapdef" \
+                       -@0 '→' \
+                       -@ [] builtin complete -F "$_zc_wrapper" "${_zc_specargs[@]}"
         eval "$_zc_wrapdef" || {
             _zc_rc=$?
             __zcerror -@2 'FAILED %x define wrapper %q' $? "$_zc_wrapper"
@@ -1128,7 +1136,8 @@ complete() {
         }
         builtin complete -F "$_zc_wrapper" "${_zc_specargs[@]}" || {
             _zc_rc=$?
-            __zcerror -@1 'FAILED %x ' $? -@ [] builtin complete -F "$_zc_wrapper" "${_zc_specargs[@]}"
+            __zcerror -@1 'FAILED %x ' $? \
+                      -@ [] builtin complete -F "$_zc_wrapper" "${_zc_specargs[@]}"
             return $((_zc_rc))
         }
     fi
