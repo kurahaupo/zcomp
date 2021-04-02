@@ -34,6 +34,7 @@ __zc_RightMargin=1      # don't use rightmost column in terminal, to avoid auto-
 ################################################################################
 #
 # Note [ANSI]
+#
 # This script only works with ANSI-style terminals and terminal emulators, such
 # as Xterm; it can cope with resizable terminal windows.
 #
@@ -113,7 +114,14 @@ declare -a _zc_atexit=()
 
 ################################################################################
 #
-# Check for supported shells (currently only Bash >= 3.1)
+# Check for supported shells
+# BASH_VERSION can be avoided, because BASH_VERSINFO was added to Bash v2.0
+#
+
+(( __zc_BASH_VERSION = BASH_VERSINFO[0] * 1000000 + BASH_VERSINFO[1] * 1000 + BASH_VERSINFO[2] ))
+
+#
+# Give up if Bash is too old (currently Bash < 3.1).
 #
 # Bash v3.1 added « VAR+=TEXT » and « ARRAY+=(ITEM) » which we use copiously.
 # With some effort these could be avoided, but incrementally building a list
@@ -121,10 +129,6 @@ declare -a _zc_atexit=()
 # quadratic time, causing noticeable delays even for lists as small as 100
 # items, and intolerable delays on lists of 1000 items.
 #
-# BASH_VERSION can be avoided, because BASH_VERSINFO was added to Bash v2.0
-#
-
-(( __zc_BASH_VERSION = BASH_VERSINFO[0] * 1000000 + BASH_VERSINFO[1] * 1000 + BASH_VERSINFO[2] ))
 (( 3001000 <= __zc_BASH_VERSION )) || return
 
 #
@@ -142,6 +146,7 @@ __zc_ts() { printf "%($*)T" -1 ; }  # timestamp (without trailing newline)
 if (( __zc_BASH_VERSION < 4000000 ))
 then
     # Note [4.0]
+    #
     # Bash v4.0 added the ability to separate xtrace output from stderr, by
     # redirecting it to fd « $BASH_XTRACEFD ». (It's harmless to set this
     # variable in earlier versions, but xtrace output will still be comingled
@@ -182,7 +187,7 @@ if (( __zc_BASH_VERSION < 4002000 ))
 then
     # Note [4.2]
     #
-    # Bash 4.2 added support for printf format specifier « %(...)T ».
+    # Bash v4.2 added support for printf format specifier « %(...)T ».
     # For older versions, replace __zc_ts with a version that calls the
     # external « date » command instead, but at most once per __zc_DateTicks
     # seconds (based on when SECONDS changes), or whenever the format («$*»)
@@ -202,7 +207,7 @@ fi
 #then
   # # Note [4.4]
   # #
-  # # Bash 4.4 added support for « local - »
+  # # Bash v4.4 added support for « local - »
   # # For older versions of bash, use « local _zc_savedash=$- » and then
   # # « set ${-:++${-//[iloprs]}} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
   # #
@@ -274,7 +279,9 @@ __zclog() {
 }
 
 #
-# Note:  {var}> redirections were added in version 4.1 - but avoid them.
+# Note [4.1]
+#   {var}> redirections were added in version 4.1 - but avoid them.
+#
 #   git blame parse.y | grep REDIR_
 #   ⇒ 0001803 2011-11-21 20:51:19 -0500 Bash-4.1 distribution source
 #
