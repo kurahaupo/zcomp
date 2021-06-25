@@ -607,14 +607,33 @@ fi
         local -a _zc_timeout=()
         (($1)) && _zc_timeout=( "$__zc_read_t01" )
         local __zgk_chr
+        trap '  _zc_key=SIG#$?-TRAP
+                trap - SIGINT SIGQUIT
+                return 128
+             ' SIGINT SIGQUIT
         IFS= \
         read -rs -d '' "$__zc_read_n1" "${_zc_timeout[@]}" _zc_key || {
             local _zc_exitcode=$?
             if ((_zc_exitcode & 128))
             then
-                _zc_key=REDRAW
-                return 0
+                # Interrupted by a signal, or timed out
+                local -a _zc_signals
+                eval "$( trap -l |
+                         tr $'\t' $'\n' |
+                         sed -n ' /[-+]/d;
+                                  s/^ */_zc_signals[/;
+                                  s/) /]=/p;
+                                ' )"
+                _zc_key=${_zc_signals[_zc_exitcode & 127]:-SIG#$_zc_exitcode}
+                case $_zc_key in
+                    SIGINT|SIGQUIT|SIGALRM|SIGWINCH|SIGCONT)
+                    trap _zc_key=SIGINT SIGINT
+                    trap _zc_key=SIGQUIT SIGQUIT
+                    return 0 ;;
+                esac
             fi
+            trap _zc_key=SIGINT SIGINT
+            trap _zc_key=SIGQUIT SIGQUIT
             return $((_zc_exitcode))
         }
         while
@@ -636,6 +655,8 @@ fi
             [[ -z "$__zgk_chr" ]] && __zgk_chr=' '  # compensate for bug in "read" ?
             _zc_key="$_zc_key$__zgk_chr"
         done
+        trap _zc_key=SIGINT SIGINT
+        trap _zc_key=SIGQUIT SIGQUIT
         return 0
     }
 
@@ -757,7 +778,7 @@ _zcomp2() {
 
     trap _zc_key=SIGINT SIGINT
     trap _zc_key=SIGQUIT SIGQUIT
-    trap __zc_get_term_size SIGWINCH
+    trap _zc_redraw=1 SIGWINCH SIGCONT
 
     while
         if ((_zc_resize || _zc_num_rows <= 0 || _zc_scrn_cols <= 0 || _zc_scrn_rows <= 0))
@@ -874,18 +895,26 @@ _zcomp2() {
         case "$_zc_key" in
 
         # no keypress immediately available when _zc_redraw_needed
-        (REDRAW)            _zc_redraw_now=1 ;;
+        (REDRAW|SIGALRM)    _zc_redraw_now=1 ;;
 
-        # ctrl-L to request redrawing
+        # ctrl-L (formfeed) to request redrawing
         ($'\f')             _zc_redraw_now=1 ;;
 
         ## Capture answer to initial "report cursor position" request
         ($'\e['[?0-9]*\;*R) _zc_key=${_zc_key//[^;0-9]/}\; _zc_saved_row=${_zc_key%%\;*} _zc_key=${_zc_key#*\;} ;;
 
-        ## Space / Enter to confirm item
-        (' '|$'\r'|$'\n')   break ;;
-        ## Escape / Menu / SIGINT / SIGQUIT to abort
-        ($'\e'|$'\e[29~'|SIG*)
+        ## Space / Enter / Tab to confirm item
+        (' '|$'\r'|$'\n'|$'\t')
+                            break ;;
+
+        ## Escape / Menu / ctrl-C / SIGINT / SIGQUIT to abort
+        ($'\e'|$'\e[29~'|$'\x03'|SIGINT|SIGQUIT)
+                            _zc_cur=-1
+                            break ;;
+
+        ## Diagnose other signals
+        (SIG*)
+                            #printf 'SIGNAL[%s]!' "$_zc_key"
                             _zc_cur=-1
                             break ;;
 
@@ -922,8 +951,8 @@ _zcomp2() {
         ($__zc_cKeyUp|$'\e'[\[O][AZ])
                             (( _zc_cur--,
                                _zc_cur >= 0             || ( _zc_cur = _zc_last_item ) )) ;;
-        # down, tab
-        ($__zc_cKeyDn|$'\e'[\[O]B|$'\t')
+        # down
+        ($__zc_cKeyDn|$'\e'[\[O]B)
                             (( _zc_cur++,
                                _zc_cur <= _zc_last_item || ( _zc_cur = 0 ) )) ;;
         # right
