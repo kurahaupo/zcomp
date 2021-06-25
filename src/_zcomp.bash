@@ -964,6 +964,7 @@ _zcomp2() {
                             ((COMP_POINT)) || break
                             [[ -n ${COMP_WORDS[COMP_CWORD]} ]] || break
                             ((--COMP_POINT)) ; COMP_LINE="${COMP_LINE:0:COMP_POINT-1}${COMP_LINE:COMP_POINT}"
+                            printf %s "$__zc_cRestCursor"
                             __zc_gen || break
                             _zc_resize=1 ;;
 
@@ -972,6 +973,7 @@ _zcomp2() {
                             COMP_LINE="${COMP_LINE:0:COMP_POINT}$_zc_key${COMP_LINE:COMP_POINT}"
                             ((++COMP_POINT))
                             COMP_WORDS[COMP_CWORD]+="$_zc_key"
+                            printf %s "$__zc_cRestCursor"
                             __zc_gen || break
                             _zc_resize=1 ;;
 
