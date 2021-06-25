@@ -21,6 +21,7 @@
 #
 
 __zc_DateTicks=1        # invoke "date" no more than once every second or so (before Bash version 4.2)
+__zc_FastAnsi=0         # use hard-coded ANSI escape sequences, rather than tput
 __zc_ForceCols=0        # set non-zero to override terminal height
 __zc_ForceRows=0        # set non-zero to override terminal width
 __zc_LeftMargin=1       # indent menu
@@ -52,56 +53,90 @@ case $TERM in
 |cons*\
 |linux*\
 |vt???*\
-)               __zc_MouseTrack=0
+)               __zc_FastAnsi=1
+                __zc_MouseTrack=0
               # __zc_Resizeable=0
                 ;;    # console
 
 ([Pp][Uu][Tt][Tt][Yy]*\
 |screen*\
-)               __zc_MouseTrack=0 ;;    # window terminal, but don't trust mouse tracking
+)               __zc_FastAnsi=1
+                __zc_MouseTrack=0 ;;    # window terminal, but don't trust mouse tracking
 
 (*[vwxy]term*\
 |cygwin*\
 |rxvt*\
 |wsvt*\
-)               : ;;                    # resizable terminal, with mouse
+)               __zc_FastAnsi=1 ;;      # resizable terminal, with mouse
 
 (*)             __zc_MouseTrack=0
-              # __zc_Resizeable=0
                 ;;    # assume fixed-size terminal, without mouse
 esac
 
-__zc_cKeyUp=$( tput kcuu1 )     # or '\e[A' or '\eOA'
-__zc_cKeyDn=$( tput kcud1 )     # or '\e[B' or '\eOB'
-__zc_cKeyRt=$( tput kcuf1 )     # or '\e[C' or '\eOC'
-__zc_cKeyLf=$( tput kcub1 )     # or '\e[D' or '\eOD'
-__zc_cKeyHm=$( tput khome )     # or '\e[H' or '\eOH'
-__zc_cKeyEn=$( tput kend )      # or '\e[F' or '\eOF'
-__zc_cKeyPU=$( tput kpp )       # or '\e[5~'
-__zc_cKeyPD=$( tput knp )       # or '\e[6~'
+if ((__zc_FastAnsi))
+then
 
-declare -a __zc_cMoveU ; __zc_cMoveU() { local rows=$(($1)) ; printf %s "${__zc_cMoveU[rows]=$( ((rows)) && tput cuu "$rows" )}" ; }   # '\e[%uA'
-declare -a __zc_cMoveD ; __zc_cMoveD() { local rows=$(($1)) ; printf %s "${__zc_cMoveD[rows]=$( ((rows)) && tput cud "$rows" )}" ; }   # '\e[%uB'
-declare -a __zc_cMoveR ; __zc_cMoveR() { local cols=$(($1)) ; printf %s "${__zc_cMoveR[cols]=$( ((cols)) && tput cuf "$cols" )}" ; }   # '\e[%uC'
-declare -a __zc_cMoveL ; __zc_cMoveL() { local cols=$(($1)) ; printf %s "${__zc_cMoveL[cols]=$( ((cols)) && tput cub "$cols" )}" ; }   # '\e[%uD'
+    __zc_cKeyUp=$'\e[A'     # or $'\eOA'
+    __zc_cKeyDn=$'\e[B'     # or $'\eOB'
+    __zc_cKeyRt=$'\e[C'     # or $'\eOC'
+    __zc_cKeyLf=$'\e[D'     # or $'\eOD'
+    __zc_cKeyHm=$'\e[H'     # or $'\eOH'
+    __zc_cKeyEn=$'\e[F'     # or $'\eOF'
+    __zc_cKeyPU=$'\e[5~'
+    __zc_cKeyPD=$'\e[6~'
 
-__zc_cSaveCursor=$( tput sc )   # or '\e7'
-__zc_cRestCursor=$( tput rc )   # or '\e8'
-__zc_cClearEoL=$( tput el )     # or '\e[K'
+    __zc_cMoveU() { local rows=$(($1)) ; ((rows)) && printf '\e[%uA' "$rows" ; }
+    __zc_cMoveD() { local rows=$(($1)) ; ((rows)) && printf '\e[%uB' "$rows" ; }
+    __zc_cMoveR() { local cols=$(($1)) ; ((cols)) && printf '\e[%uC' "$cols" ; }
+    __zc_cMoveL() { local cols=$(($1)) ; ((cols)) && printf '\e[%uD' "$cols" ; }
 
-__zc_cNormal=$( tput dim        # show list in dim yellow-on-black $'\e[22;33;40m'
-                tput setaf 3
-                tput setab 0 )
-__zc_cSelect=$( tput bold       # show highlit item in bright-white-on-black $'\e[1;37;40m'
-                tput setaf 3
-                tput setab 0 )
-__zc_cEnd=$( tput sgr0 )        # go back to "normal" colours $'\e[39;49;21m'
+    __zc_cSaveCursor=$'\e7'
+    __zc_cRestCursor=$'\e8'
+    __zc_cClearEoL=$'\e[K'
 
-__zc_cNormal=${__zc_cNormal//$'m\e['/';'}
-__zc_cSelect=${__zc_cSelect//$'m\e['/';'}
+    __zc_cNormal=$'\e[22;33;40m'    # show list in dim yellow-on-black
+    __zc_cSelect=$'\e[1;37;40m'     # show highlit item in bright-white-on-black
+    __zc_cEnd=$'\e[39;49;21m'       # go back to "normal" colours
+
+    __zc_cReportCursor=$'\e[?6n'
+
+else
+
+    __zc_cKeyUp=$( tput kcuu1 )     # or '\e[A' or '\eOA'
+    __zc_cKeyDn=$( tput kcud1 )     # or '\e[B' or '\eOB'
+    __zc_cKeyRt=$( tput kcuf1 )     # or '\e[C' or '\eOC'
+    __zc_cKeyLf=$( tput kcub1 )     # or '\e[D' or '\eOD'
+    __zc_cKeyHm=$( tput khome )     # or '\e[H' or '\eOH'
+    __zc_cKeyEn=$( tput kend )      # or '\e[F' or '\eOF'
+    __zc_cKeyPU=$( tput kpp )       # or '\e[5~'
+    __zc_cKeyPD=$( tput knp )       # or '\e[6~'
+
+    declare -a __zc_cMoveU ; __zc_cMoveU() { local rows=$(($1)) ; printf %s "${__zc_cMoveU[rows]=$( ((rows)) && tput cuu "$rows" )}" ; }   # '\e[%uA'
+    declare -a __zc_cMoveD ; __zc_cMoveD() { local rows=$(($1)) ; printf %s "${__zc_cMoveD[rows]=$( ((rows)) && tput cud "$rows" )}" ; }   # '\e[%uB'
+    declare -a __zc_cMoveR ; __zc_cMoveR() { local cols=$(($1)) ; printf %s "${__zc_cMoveR[cols]=$( ((cols)) && tput cuf "$cols" )}" ; }   # '\e[%uC'
+    declare -a __zc_cMoveL ; __zc_cMoveL() { local cols=$(($1)) ; printf %s "${__zc_cMoveL[cols]=$( ((cols)) && tput cub "$cols" )}" ; }   # '\e[%uD'
+
+    __zc_cSaveCursor=$( tput sc )   # or '\e7'
+    __zc_cRestCursor=$( tput rc )   # or '\e8'
+    __zc_cClearEoL=$( tput el )     # or '\e[K'
+
+    __zc_cNormal=$( tput dim        # show list in dim yellow-on-black $'\e[22;33;40m'
+                    tput setaf 3
+                    tput setab 0 )
+    __zc_cSelect=$( tput bold       # show highlit item in bright-white-on-black $'\e[1;37;40m'
+                    tput setaf 3
+                    tput setab 0 )
+    __zc_cEnd=$( tput sgr0 )        # go back to "normal" colours $'\e[39;49;21m'
+
+    # Compact CSI...m CSI...m CSI...m into CSI...;...;...m
+    __zc_cNormal=${__zc_cNormal//$'m\e['/';'}
+    __zc_cSelect=${__zc_cSelect//$'m\e['/';'}
+
+    __zc_cReportCursor=$( tput u7 ) # '\e[?6n'
+
+fi
 
 # no tput equivalents
-__zc_cReportCursor=$'\e[?6n'
 __zc_cStartTrackingMouse=$'\e[?1003h'
 __zc_cStopTrackingMouse=$'\e[?1003l'
 
