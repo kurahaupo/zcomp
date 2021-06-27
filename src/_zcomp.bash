@@ -17,6 +17,112 @@
 
 ################################################################################
 #
+# Check for supported shells
+# BASH_VERSION can be avoided, because BASH_VERSINFO was added to Bash v2.0
+#
+
+(( __zc_BASH_VERSION = BASH_VERSINFO[0] * 1000000 + BASH_VERSINFO[1] * 1000 + BASH_VERSINFO[2] ))
+
+#
+# Give up if Bash is too old (currently Bash < 3.1).
+#
+# Bash v3.1 added « VAR+=TEXT » and « ARRAY+=(ITEM) » which we use copiously.
+# With some effort these could be avoided, but incrementally building a list
+# using « array=("${array[@]}" item) » (or using « set -- "$@" item ») takes
+# quadratic time, causing noticeable delays even for lists as small as 100
+# items, and intolerable delays on lists of 1000 items.
+#
+(( 3001000 <= __zc_BASH_VERSION )) || return
+
+#
+# Compensate for shortcomings of earlier versions of Bash
+#
+
+__zc_can_localize_flags=1           # can do « local - »
+__zc_has_read_alarm_status=1        # « read -t$seconds » returns SIGALRM status on timeout
+__zc_has_varredir=1                 # can do « {var}> ... » redirection
+__zc_has_xtracefd=1                 # output triggered by « set -x » can go somewhere other than stderr
+__zc_read_n1=-N1                    # « read -N$bytes » is understood
+__zc_read_t01=-t0.1                 # « read -t$seconds » can understand fractions
+
+__zc_ts() { printf "%($*)T" -1 ; }  # timestamp (without trailing newline)
+
+if (( __zc_BASH_VERSION < 4000000 ))
+then
+    # Note [4.0]
+    #
+    # Bash v4.0 added the ability to separate xtrace output from stderr, by
+    # redirecting it to fd « $BASH_XTRACEFD ». (It's harmless to set this
+    # variable in earlier versions, but xtrace output will still be comingled
+    # with stderr, so we only use this setting for reporting.)
+    #
+    # Bash v4.0 added support for associative arrays (maps).
+    # For numeric variables in older versions use « ((mapname_$x)) » instead of
+    # « ((mapname[$x])) ».
+    #
+    # Bash v4.0 added support for fractional timeouts with « read -t$seconds »,
+    # and also sets the return code as if read had been killed by SIGALRM.
+    # For older versions, use « read -t1 » instead, which will cause
+    # user-observable delays when pressing ESC, and will increase the
+    # likelihood of oddities if an incomplete sequence is received followed by
+    # another key within the second.
+    __zc_has_xtracefd=0
+    __zc_read_t01=-t1
+    __zc_has_read_alarm_status=0
+fi
+
+if (( __zc_BASH_VERSION < 4001000 ))
+then
+    # Note [4.1]
+    #
+    # Bash v4.1 added support for « read -N$num ».
+    # For older versions, use « read -n$num » instead, which may cause issues
+    # if the tty's eol or eol2 is set to some character that's embedded within
+    # a key's escape sequence. (In particular this may apply when eol2 is set
+    # to ESC by readline in vi mode.)
+    __zc_read_n1=-n1
+    #
+    # Bash v4.1 added support for « {var}> » redirection.
+    # For older versions, use fixed numbers for filedescriptors.
+    #
+    # (Currently we don't make any use of this feature.)
+    __zc_has_varredir=0
+fi
+
+if (( __zc_BASH_VERSION < 4002000 ))
+then
+    # Note [4.2]
+    #
+    # Bash v4.2 added support for printf format specifier « %(...)T ».
+    # For older versions, replace __zc_ts with a version that calls the
+    # external « date » command instead, but at most once per __zc_DateTicks
+    # seconds (based on when SECONDS changes), or whenever the format («$*»)
+    # changes.
+    __zc_ts() {
+        if (( __zcpsec + __zc_DateTicks <= SECONDS || __zcpsec > SECONDS )) || [[ "$*" != "$__zcpfmt" ]]
+        then
+            (( __zcpsec = SECONDS ))
+            __zcpfmt="$*"
+            __zcdate=$( date +"$__zcpfmt" )
+        fi
+        printf '%s' "$__zcdate"
+    }
+fi
+
+if (( __zc_BASH_VERSION < 4004000 ))
+then
+    # Note [4.4]
+    #
+    # Bash v4.4 added support for « local - »
+    # For older versions of bash, use « local _zc_savedash=$- » and then
+    # « set ${-:++${-//[iloprs]}} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
+    #
+    # (Currently we don't make any use of this feature.)
+    __zc_can_localize_flags=0
+fi
+
+################################################################################
+#
 # User-configurable behaviour
 #
 
@@ -148,112 +254,6 @@ __zc_cStopTrackingMouse=$'\e[?1003l'
 #
 
 declare -a _zc_atexit=()
-
-################################################################################
-#
-# Check for supported shells
-# BASH_VERSION can be avoided, because BASH_VERSINFO was added to Bash v2.0
-#
-
-(( __zc_BASH_VERSION = BASH_VERSINFO[0] * 1000000 + BASH_VERSINFO[1] * 1000 + BASH_VERSINFO[2] ))
-
-#
-# Give up if Bash is too old (currently Bash < 3.1).
-#
-# Bash v3.1 added « VAR+=TEXT » and « ARRAY+=(ITEM) » which we use copiously.
-# With some effort these could be avoided, but incrementally building a list
-# using « array=("${array[@]}" item) » (or using « set -- "$@" item ») takes
-# quadratic time, causing noticeable delays even for lists as small as 100
-# items, and intolerable delays on lists of 1000 items.
-#
-(( 3001000 <= __zc_BASH_VERSION )) || return
-
-#
-# Compensate for shortcomings of earlier versions of Bash
-#
-
-__zc_can_localize_flags=1           # can do « local - »
-__zc_has_read_alarm_status=1        # « read -t$seconds » returns SIGALRM status on timeout
-__zc_has_varredir=1                 # can do « {var}> ... » redirection
-__zc_has_xtracefd=1                 # output triggered by « set -x » can go somewhere other than stderr
-__zc_read_n1=-N1                    # « read -N$bytes » is understood
-__zc_read_t01=-t0.1                 # « read -t$seconds » can understand fractions
-
-__zc_ts() { printf "%($*)T" -1 ; }  # timestamp (without trailing newline)
-
-if (( __zc_BASH_VERSION < 4000000 ))
-then
-    # Note [4.0]
-    #
-    # Bash v4.0 added the ability to separate xtrace output from stderr, by
-    # redirecting it to fd « $BASH_XTRACEFD ». (It's harmless to set this
-    # variable in earlier versions, but xtrace output will still be comingled
-    # with stderr, so we only use this setting for reporting.)
-    #
-    # Bash v4.0 added support for associative arrays (maps).
-    # For numeric variables in older versions use « ((mapname_$x)) » instead of
-    # « ((mapname[$x])) ».
-    #
-    # Bash v4.0 added support for fractional timeouts with « read -t$seconds »,
-    # and also sets the return code as if read had been killed by SIGALRM.
-    # For older versions, use « read -t1 » instead, which will cause
-    # user-observable delays when pressing ESC, and will increase the
-    # likelihood of oddities if an incomplete sequence is received followed by
-    # another key within the second.
-    __zc_has_xtracefd=0
-    __zc_read_t01=-t1
-    __zc_has_read_alarm_status=0
-fi
-
-if (( __zc_BASH_VERSION < 4001000 ))
-then
-    # Note [4.1]
-    #
-    # Bash v4.1 added support for « read -N$num ».
-    # For older versions, use « read -n$num » instead, which may cause issues
-    # if the tty's eol or eol2 is set to some character that's embedded within
-    # a key's escape sequence. (In particular this may apply when eol2 is set
-    # to ESC by readline in vi mode.)
-    __zc_read_n1=-n1
-    #
-    # Bash v4.1 added support for « {var}> » redirection.
-    # For older versions, use fixed numbers for filedescriptors.
-    #
-    # (Currently we don't make any use of this feature.)
-    __zc_has_varredir=0
-fi
-
-if (( __zc_BASH_VERSION < 4002000 ))
-then
-    # Note [4.2]
-    #
-    # Bash v4.2 added support for printf format specifier « %(...)T ».
-    # For older versions, replace __zc_ts with a version that calls the
-    # external « date » command instead, but at most once per __zc_DateTicks
-    # seconds (based on when SECONDS changes), or whenever the format («$*»)
-    # changes.
-    __zc_ts() {
-        if (( __zcpsec + __zc_DateTicks <= SECONDS || __zcpsec > SECONDS )) || [[ "$*" != "$__zcpfmt" ]]
-        then
-            (( __zcpsec = SECONDS ))
-            __zcpfmt="$*"
-            __zcdate=$( date +"$__zcpfmt" )
-        fi
-        printf '%s' "$__zcdate"
-    }
-fi
-
-if (( __zc_BASH_VERSION < 4004000 ))
-then
-    # Note [4.4]
-    #
-    # Bash v4.4 added support for « local - »
-    # For older versions of bash, use « local _zc_savedash=$- » and then
-    # « set ${-:++${-//[iloprs]}} ${_zc_savedash:+-$_zc_savedash} » to unwind any changes
-    #
-    # (Currently we don't make any use of this feature.)
-    __zc_can_localize_flags=0
-fi
 
 ################################################################################
 #
