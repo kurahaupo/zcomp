@@ -27,6 +27,8 @@ __zc_ForceRows=0        # set non-zero to override terminal width
 __zc_LeftMargin=1       # indent menu
 __zc_MaxCols=223        # } limited user preference; note that mouse tracking can't
 __zc_MaxRows=223        # } report rows or columns higher than 223=0xff-0x20
+__zc_MinCols=24         # skip menu if terminal narrower than this
+__zc_MinRows=3          # skip menu if terminal shorter than this
 __zc_MouseTrack=1       # arbitrary user preference (numeric true/false)
 __zc_PaddingCols=2      # leave gaps between columns
 __zc_RightMargin=1      # don't use rightmost column in terminal, to avoid auto-right-margin causing problems
@@ -632,10 +634,21 @@ fi
     }
 
     __zc_get_term_size() {
+        # Override for debugging
+        (( ( _zc_scrn_rows = __zc_ForceRows ) > 0 &&
+           ( _zc_scrn_cols = __zc_ForceCols ) > 0 )) && return
+
+        # Hopefully Bash has set LINES & COLUMNS for us...
+        (( ( _zc_scrn_rows = LINES ) > 0 &&
+           ( _zc_scrn_cols = COLUMNS - __zc_LeftMargin - __zc_RightMargin ) > 0 )) && return
+
+        # If that didn't work, try "stty" and then "tput"
         read -r   LINES            COLUMNS _   < <( stty size     2>/dev/null ) ||
-        { read -r LINES && read -r COLUMNS ; } < <( tput -S <<<$'lines\ncols' )
-        (( _zc_scrn_cols -= __zc_RightMargin ))
-        _zc_resize=1
+        { read -r LINES && read -r COLUMNS ; } < <( tput -S <<<$'lines\ncols' ) &&
+        (( LINES > 0 && COLUMNS > 0 &&
+            ( _zc_scrn_cols = COLUMNS - __zc_LeftMargin - __zc_RightMargin,
+              _zc_scrn_rows = LINES )
+        ))
     }
 
     __zc_getkey() {
@@ -795,10 +808,10 @@ _zcomp2() {
     local -i _zc_first=1 _zc_redraw_needed _zc_redraw_now _zc_resize=1
     local -i _zc_col_offset _zc_col_width _zc_cur _zc_mcol _zc_mrow
     local -i _zc_last_item _zc_last_dcol _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
-    local -i _zc_prev_num_rows _zc_saved_row _zc_scrn_cols _zc_scrn_rows
+    local -i _zc_prev_num_cols _zc_prev_num_rows _zc_saved_row _zc_scrn_cols _zc_scrn_rows
     local -i _zc_max_item_width _zcj _zck _zcl
 
-    (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_rows=-1 ))
+    (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_cols=-1, _zc_prev_num_rows=-1 ))
 
     { __zc_gen && [[ "${COMP_TYPE:-9}" = 9 ]] ; } || {
         # Avoid showing menu if either
@@ -816,37 +829,51 @@ _zcomp2() {
     trap _zc_redraw=1 SIGWINCH SIGCONT
 
     while
-        if ((_zc_resize || _zc_num_rows <= 0 || _zc_scrn_cols <= 0 || _zc_scrn_rows <= 0))
+        if (( _zc_resize || _zc_num_rows <= 0 || _zc_scrn_cols <= 0 || _zc_scrn_rows <= 0 ))
         then
             (( _zc_resize )) ||
+                # (shouldn't happen; report as a bug)
                 __zcerror -@ 'ERROR: _zc_num_rows is %s but _zc_resize is false' "$_zc_num_rows"
-            # get screen dimensions
-            (( ( _zc_scrn_cols = __zc_ForceCols ) || ( _zc_scrn_cols = COLUMNS ),
-               ( _zc_scrn_rows = __zc_ForceRows ) || ( _zc_scrn_rows = LINES )   ))
-            if ! (( _zc_scrn_cols && _zc_scrn_rows ))
-            then
-                # resort to using tput and/or stty to get values
-                __zc_get_term_size &&
-                    continue                    # go back and recompute based on new COLUMNS & LINES
-            fi
-            # compute tabular rows & columns, then trigger redraw
-            (( _zc_scrn_rows <= __zc_MaxRows    || ( _zc_scrn_rows = __zc_MaxRows ),
-               _zc_scrn_cols <= __zc_MaxCols    || ( _zc_scrn_cols = __zc_MaxCols ),
-               _zc_col_width = _zc_max_item_width,
-               _zc_col_width <= _zc_scrn_cols || ( _zc_col_width = _zc_scrn_cols ),
+
+            # Get terminal dimensions, or play safe and return
+            __zc_get_term_size || return
+
+            # If the terminal is too small play it safe and simply return.
+            (( _zc_scrn_cols < __zc_MinCols ||
+               _zc_scrn_rows < __zc_MinRows )) &&
+                return 1
+
+            # Allow for margins (and double-check the minimum size)
+            (( ( _zc_scrn_cols -= __zc_LeftMargin - __zc_RightMargin ) > 0 )) ||
+                return 1
+
+            # Clip effective terminal size
+            (( _zc_scrn_rows <= __zc_MaxRows && __zc_MaxRows || ( _zc_scrn_rows = __zc_MaxRows ),
+               _zc_scrn_cols <= __zc_MaxCols && __zc_MaxCols || ( _zc_scrn_cols = __zc_MaxCols ) ))
+
+            # Compute tabular rows & columns
+            (( _zc_col_width = _zc_max_item_width,
+               _zc_col_width <= _zc_scrn_cols   || ( _zc_col_width = _zc_scrn_cols ),
+
                _zc_num_dcols = (_zc_scrn_cols+__zc_PaddingCols) / (_zc_col_width+__zc_PaddingCols),
                _zc_num_dcols <= _zc_num_items   || ( _zc_num_dcols = _zc_num_items ),
                _zc_num_dcols > 0                || ( _zc_num_dcols = 1 ),
                _zc_last_dcol = _zc_num_dcols-1,
+
                _zc_num_rows = 1 + _zc_last_item / _zc_num_dcols,
                _zc_num_rows < _zc_scrn_rows     || ( _zc_num_rows = _zc_scrn_rows-1 ),
                _zc_num_rows > 0                 || ( _zc_num_rows = 1 ),
-               _zc_num_vcols = 1 + _zc_last_item / _zc_num_rows,
-               _zc_resize = 0,
-               _zc_redraw_needed = 1 ))
+
+               _zc_num_vcols = 1 + _zc_last_item / _zc_num_rows ))
+
+            # Resize calculation done; force redraw if size has changed
+            (( _zc_resize = 0,
+               _zc_prev_num_rows == _zc_num_rows &&
+               _zc_prev_num_cols == _zc_num_dcols || ( _zc_redraw_needed = 1 ) ))
         fi
 
-        # scroll sideways to keep current item in view, by updating _zc_col_offset
+        # Scroll sideways to keep current item in view, by updating _zc_col_offset
+        # and forcing a redraw
         (( _zcj = _zc_cur/_zc_num_rows - _zc_last_dcol,
            _zc_col_offset < _zcj && (
            _zc_col_offset = _zcj, _zc_redraw_needed = 1 ),
@@ -854,15 +881,23 @@ _zcomp2() {
            _zc_col_offset > _zcj && (
            _zc_col_offset = _zcj, _zc_redraw_needed = 1 )))
 
-        if ((_zc_redraw_now || _zc_redraw_needed && !__zc_has_read_alarm_status || _zc_prev_num_rows != _zc_num_rows || _zc_first))
+        # If a redraw has been triggered, defer until the user stops pressing
+        # navigation buttons. This relies on __zc_getkey being able to quietly
+        # report a timeout, see below.
+        if (( _zc_redraw_now || _zc_redraw_needed && !__zc_has_read_alarm_status || _zc_first ))
         then
             # save starting cursor position
-            ((_zc_first)) && printf %s "$__zc_cSaveCursor"
+            if ((_zc_first))
+            then printf %s "$__zc_cSaveCursor"
+            else printf %s "$__zc_cRestCursor"
+            fi
 
-            # display the menu
+            # Compute _zck as the index+1 of the bottom item of the rightmost
+            # displayed column.
             (( _zck = (_zc_num_dcols+_zc_col_offset)*_zc_num_rows,
                _zck > _zc_num_items && (
                _zck = _zc_num_items )))
+            # Display the menu
             for (( _zcj = 0 ; _zcj < _zc_num_rows ; _zcj++ )) do
                 printf '\r\n'
                 for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zck ; _zcl += _zc_num_rows )) do
@@ -883,18 +918,20 @@ _zcomp2() {
                 __zc_cMoveU $((_zc_prev_num_rows-_zc_num_rows))
             elif ((_zc_prev_num_rows < _zc_num_rows))
             then
-                # handle menu expansion (including initially)
+                # Menu expanded to take more lines (or was first drawn) so
                 # re-save cursor position after compensating for scrolling:
                 #  - go to previous saved cursor position
-                #  - move $_zc_num_rows down (truncated to bottom line)
-                #  - move $_zc_num_rows up
+                #  - move $_zc_num_rows down without changing column (but
+                #    stopping at bottom line of terminal)
+                #  - move $_zc_num_rows up without chaning column
                 #  - save new cursor position
                 printf %s "$__zc_cRestCursor"
                 __zc_cMoveD _zc_num_rows
                 __zc_cMoveU _zc_num_rows
                 printf %s "$__zc_cSaveCursor"
             fi
-            (( _zc_prev_num_rows = _zc_num_rows ))
+            (( _zc_prev_num_rows = _zc_num_rows,
+               _zc_prev_num_cols = _zc_num_dcols ))
 
             ((__zc_MouseTrack && _zc_first)) && {
                 # Ask Xterm to report current cursor position; this will cause a
@@ -905,9 +942,8 @@ _zcomp2() {
                 printf %s "$__zc_cStartTrackingMouse"
             }
 
-            _zc_first=0
-            _zc_redraw_needed=0
-            _zc_redraw_now=0
+            # Redraw done
+            (( _zc_first = _zc_redraw_needed = _zc_redraw_now = 0 ))
         fi
 
         #
@@ -915,7 +951,11 @@ _zcomp2() {
         #
         __zc_item $((_zc_cur)) 1
 
-        __zc_getkey $((_zc_redraw_needed && __zc_has_read_alarm_status))    # returns value in _zc_key
+        # If we're in "redraw needed" state, put a timeout on the read, and if
+        # the timeout occurs, succeed with _zc_key set to SIGALRM.
+        # (If this is an old version of Bash without __zc_has_read_alarm_status
+        # then the redraw has been done, so _zc_redraw_needed is false).
+        __zc_getkey $((_zc_redraw_needed))  # returns value in _zc_key
     do
         __zcinfo -@ 'Got key %q' "$_zc_key"
 
@@ -929,11 +969,11 @@ _zcomp2() {
 
         case "$_zc_key" in
 
-        # no keypress immediately available when _zc_redraw_needed
+        # No keypress immediately available when _zc_redraw_needed
         (REDRAW|SIGALRM)    _zc_redraw_now=1 ;;
 
         # ctrl-L (formfeed) to request redrawing
-        ($'\f')             _zc_redraw_now=1 ;;
+        ($'\f')             _zc_redraw_needed=1 ;;
 
         ## Capture answer to initial "report cursor position" request
         ($'\e['[?0-9]*\;*R) _zc_key=${_zc_key//[^;0-9]/}\; _zc_saved_row=${_zc_key%%\;*} _zc_key=${_zc_key#*\;} ;;
