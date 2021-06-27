@@ -461,7 +461,9 @@ EndOfHelp
             printf >&2 '__zc_set_debug: invalid option "%s"\n' "$j" ;;
         *)
             k=${j#[!A-Za-z]} j=${j%"$k"}
-            if [[ $k != @(0|[1-9]*([0-9])|0x*([0-9a-f])) ]]
+            if ! [[ $k = 0 ||
+                  ( $k = [1-9]* && $k != *[!0-9]* ) ||
+                  ( $k = 0x*    && $k != ??*[!0-9a-f]* ) ]]
             then
                 k=__zc_maskname_$k  # see version note [4.0]
                 # shellcheck disable=SC2004
@@ -1314,7 +1316,7 @@ do
 done
 
 # unset unwanted variables & functions
-unset "${!_zc_@}"
+unset ${!_zc_*} # work-around for bug in some 4.0 releases
 . <( declare -F | sed -n 's/^declare\( -f _zc_\)/unset \1/p' )
 
 return 0
