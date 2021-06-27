@@ -39,6 +39,7 @@
 #
 
 __zc_can_localize_flags=1           # can do « local - »
+__zc_has_maps=1                     # has associative arrays
 __zc_has_read_alarm_status=1        # « read -t$seconds » returns SIGALRM status on timeout
 __zc_has_varredir=1                 # can do « {var}> ... » redirection
 __zc_has_xtracefd=1                 # output triggered by « set -x » can go somewhere other than stderr
@@ -53,12 +54,14 @@ then
     #
     # Bash v4.0 added the ability to separate xtrace output from stderr, by
     # redirecting it to fd « $BASH_XTRACEFD ». (It's harmless to set this
-    # variable in earlier versions, but xtrace output will still be comingled
-    # with stderr, so we only use this setting for reporting.)
+    # variable in earlier versions, but then xtrace output will still be
+    # comingled with stderr; so we only use this setting for debugging)
+    __zc_has_xtracefd=0
     #
     # Bash v4.0 added support for associative arrays (maps).
     # For numeric variables in older versions use « ((mapname_$x)) » instead of
     # « ((mapname[$x])) ».
+    __zc_has_maps=0
     #
     # Bash v4.0 added support for fractional timeouts with « read -t$seconds »,
     # and also sets the return code as if read had been killed by SIGALRM.
@@ -66,9 +69,8 @@ then
     # user-observable delays when pressing ESC, and will increase the
     # likelihood of oddities if an incomplete sequence is received followed by
     # another key within the second.
-    __zc_has_xtracefd=0
-    __zc_read_t01=-t1
     __zc_has_read_alarm_status=0
+    __zc_read_t01=-t1
 fi
 
 if (( __zc_BASH_VERSION < 4001000 ))
