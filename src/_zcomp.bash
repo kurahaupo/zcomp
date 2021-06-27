@@ -982,6 +982,9 @@ _zcomp2() {
         #
         __zc_item $((_zc_cur)) 1
 
+        # TODO: optionally park cursor in the command line
+        #printf %s "$__zc_cRestCursor"
+
         # If we're in "redraw needed" state, put a timeout on the read, and if
         # the timeout occurs, succeed with _zc_key set to SIGALRM.
         # (If this is an old version of Bash without __zc_has_read_alarm_status
