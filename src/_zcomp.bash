@@ -1316,7 +1316,7 @@ do
 done
 
 # unset unwanted variables & functions
-unset "${!_zc_@}"
+unset ${!_zc_*} # work-around for bug in some 4.0 releases
 . <( declare -F | sed -n 's/^declare\( -f _zc_\)/unset \1/p' )
 
 return 0
