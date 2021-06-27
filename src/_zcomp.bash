@@ -142,6 +142,31 @@ __zc_PaddingCols=2      # leave gaps between columns
 __zc_RightMargin=1      # don't use rightmost column in terminal, to avoid auto-right-margin causing problems
 #__zc_Resizeable=1      # terminal is in a window that can be resized
 
+#   The following is commented out because it's not valid syntax before Bash
+#   v4.0, and it's only a template for you to define your own map.
+#
+#   Although it's possible to map from the byte sequence for a key to any other
+#   byte sequence, thus mimicking another key, it's better to use these
+#   symbolic replacements:
+#       ACCEPT      accept the current selection    CR, NL, Space
+#       CANCEL      don't select anything           ESC, ctrl-C, Menu
+#       IGNORE      do nothing
+#       NEXT        move selection down one         ctrl-N  tput-kcuu1
+#       PREV        move selection up one           ctrl-P  tput-kcud1
+#       REDRAW      re-display menu                 ctrl-L
+#       REDRAWNOW   re-display menu immediately
+#
+#       SIGALRM SIGINT SIGQUIT SIGWINCH
+#
+if (( __zc_has_maps ))
+then
+    declare -A __zc_KeyMap
+    __zc_KeyMap=(
+#       [$'\t']=ACCEPT
+#       [' ']=NEXT
+    )
+fi
+
 ################################################################################
 #
 # Note [ANSI]
@@ -969,31 +994,33 @@ _zcomp2() {
         # Terminals don't usually produce the ;1~ variant, but just make sure
         _zc_key=${_zc_key/';1~'/'~'}
 
+        # Re-map key if requested
+        # (But only if this version of Bash has associative arrays; fortunately
+        # they don't introduce new syntax, so a conditional expansion is OK.)
+        ((__zc_has_maps)) &&
+            _zc_key="${__zc_KeyMap[$_zc_key]-$_zc_key}"
+
         case "$_zc_key" in
 
         # No keypress immediately available when _zc_redraw_needed
-        (REDRAW|SIGALRM)    _zc_redraw_now=1 ;;
+        (REDRAWNOW|SIGALRM) _zc_redraw_now=1 ;;
 
         # ctrl-L (formfeed) to request redrawing
-        ($'\f')             _zc_redraw_needed=1 ;;
+        (REDRAW|$'\f')      _zc_redraw_needed=1 ;;
 
         ## Capture answer to initial "report cursor position" request
         ($'\e['[?0-9]*\;*R) _zc_key=${_zc_key//[^;0-9]/}\; _zc_saved_row=${_zc_key%%\;*} _zc_key=${_zc_key#*\;} ;;
 
-        ## Space / Enter / Tab to confirm item
-        (' '|$'\r'|$'\n'|$'\t')
+        ## Space / Enter to confirm item
+        (ACCEPT|' '|$'\r'|$'\n')
                             break ;;
 
         ## Escape / Menu / ctrl-C / SIGINT / SIGQUIT to abort
-        ($'\e'|$'\e[29~'|$'\x03'|SIGINT|SIGQUIT)
+        (CANCEL|$'\e'|$'\e[29~'|$'\x03'|SIG*)
                             _zc_cur=-1
                             break ;;
 
-        ## Diagnose other signals
-        (SIG*)
-                            #printf 'SIGNAL[%s]!' "$_zc_key"
-                            _zc_cur=-1
-                            break ;;
+        (IGNORE|'') ;;      # Ignore mapped key
 
         ## Mouse tracking
         ($'\e[M`'??)        (( _zc_col_offset > 0                             && --_zc_col_offset )) ;;  # 64 mouse scroll up
@@ -1025,11 +1052,11 @@ _zcomp2() {
         ($'\e[1;2D')        (( _zc_cur %= _zc_num_rows )) ;;
 
         # up, shift-tab
-        ($__zc_cKeyUp|$'\e'[\[O][AZ])
+        (PREV|$__zc_cKeyUp|$'\e'[\[O][AZ])
                             (( _zc_cur--,
                                _zc_cur >= 0             || ( _zc_cur = _zc_last_item ) )) ;;
         # down
-        ($__zc_cKeyDn|$'\e'[\[O]B)
+        (NEXT|$__zc_cKeyDn|$'\e'[\[O]B|$'\t')
                             (( _zc_cur++,
                                _zc_cur <= _zc_last_item || ( _zc_cur = 0 ) )) ;;
         # right
