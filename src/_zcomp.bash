@@ -1056,11 +1056,11 @@ _zcomp2() {
         ($'\e[1;2D')        (( _zc_cur %= _zc_num_rows )) ;;
 
         # up, shift-tab
-        (PREV|$__zc_cKeyUp|$'\e'[\[O][AZ])
+        (PREV|$__zc_cKeyUp|$'\e'[\[O][AZ]|$'\x10')
                             (( _zc_cur--,
                                _zc_cur >= 0             || ( _zc_cur = _zc_last_item ) )) ;;
         # down
-        (NEXT|$__zc_cKeyDn|$'\e'[\[O]B|$'\t')
+        (NEXT|$__zc_cKeyDn|$'\e'[\[O]B|$'\t'|$'\x0e')
                             (( _zc_cur++,
                                _zc_cur <= _zc_last_item || ( _zc_cur = 0 ) )) ;;
         # right
