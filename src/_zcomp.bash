@@ -457,13 +457,13 @@ EndOfHelp
                         ;;
         xtrace*)        printf >&2 '__zc_set_debug: invalid "xtrace" option "%s"\n' "$j" ;;
         log-to*)        printf >&2 '__zc_set_debug: invalid "log-to" option "%s"\n' "$j" ;;
-        [!-+=_A-Za-z0-9]*|?*[!_A-Za-z0-9]*)
+        [!-+=_A-Za-z0-9]*|?*[!_A-Za-z0-9]*|[-+=])
             printf >&2 '__zc_set_debug: invalid option "%s"\n' "$j" ;;
         *)
-            k=${j#[!A-Za-z]} j=${j%"$k"}
-            if ! [[ $k = 0 ||
-                  ( $k = [1-9]* && $k != *[!0-9]* ) ||
-                  ( $k = 0x*    && $k != ??*[!0-9a-f]* ) ]]
+            k=${j#[-+=]} j=${j%"$k"}
+            if ! [[ ( $k = 0*     && $k != *[!0-7]* ) ||        # Zero or Octal
+                    ( $k = [1-9]* && $k != *[!0-9]* ) ||        # Decimal
+                    ( $k = 0x*    && $k != ??*[!0-9a-f]* ) ]]   # Hexadecimal
             then
                 k=__zc_maskname_$k  # see version note [4.0]
                 # shellcheck disable=SC2004
