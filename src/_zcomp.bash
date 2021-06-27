@@ -772,27 +772,35 @@ _zcomp() {
     return $((_zc_rc))
 }
 
+#
+# __zc_itempos takes 1 parameter:
+#   1) the item index to display
+#
+# uses caller's _zc_num_rows, _zc_col_offset, _zc_col_width
+#
+__zc_itempos() {
+    local -i _zci=$1 _zc_row _zc_dcol
+    (( _zc_row  = _zci%_zc_num_rows,
+       _zc_dcol = _zci/_zc_num_rows - _zc_col_offset ))
+    # restore cursor position
+    printf %s "$__zc_cRestCursor"
+    # move down to item row (row 0 is the one after the command line)
+    __zc_cMoveD $(( _zc_row+1 ))
+    # move to left margin
+    printf '\r'
+    # move right to item column
+    __zc_cMoveR $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols)+__zc_LeftMargin ))
+}
+
+#
+# __zc_item takes 2 parameters:
+#   1) the item index to display
+#   2) whether it should be highlighted
+#
+# uses caller's _zc_col_width
+#
 __zc_item() {
-    local -i _zci=$1 _zc_selected=$2 _zc_flowmode=$(($#>=3)) _zc_firstcol=$3 _zc_lastcol=$4
-    local -i _zc_row _zc_dcol
-    if ((!_zc_flowmode))
-    then
-        (( _zc_row  = _zci%_zc_num_rows,
-           _zc_dcol = _zci/_zc_num_rows - _zc_col_offset ))
-        # restore cursor position
-        printf %s "$__zc_cRestCursor"
-        # move down to item row (row 0 is the one after the command line)
-        __zc_cMoveD $(( _zc_row+1 ))
-        # move to left margin
-        printf '\r'
-        # move right to item column
-        __zc_cMoveR $(( _zc_dcol*(_zc_col_width+__zc_PaddingCols)+__zc_LeftMargin ))
-    elif (( _zc_firstcol ))
-    then
-        # left margin on each line
-        printf '%*s\r' $(( __zc_LeftMargin )) ''
-        __zc_cMoveR $(( __zc_LeftMargin ))
-    fi
+    local -i _zci=$1 _zc_selected=$2
     local _zct="${COMPREPLY[_zci]}"
     # prune to fit, if necessary
     _zct=${_zct:0:_zc_col_width}
@@ -802,24 +810,9 @@ __zc_item() {
     else printf %s "$__zc_cNormal"
     fi
     # show current item,
-    printf "%s" "$_zct"
+    printf "%-*s" $(( _zc_col_width )) "$_zct"
     # back to normal text
     printf "%s" "$__zc_cEnd"
-    # if last column, erase remainder of line
-    (( _zc_lastcol )) && printf %s "$__zc_cClearEoL"
-    if (( !_zc_flowmode ))
-    then
-        # move cursor back to start of item, left by (_zc_col_width+__zc_PaddingCols-1),
-        __zc_cMoveL $(( ${#_zct} ))
-      # # move cursor back to command line
-      # __zc_cMoveU $(( _zc_row+1 ))
-      # printf '\r'
-      # printf %s "$__zc_cRestCursor"
-    elif (( !_zc_lastcol ))
-    then
-        # move cursor on to next item on this line
-        printf '%*s' $(( _zc_col_width - ${#_zct} + __zc_PaddingCols )) ''
-    fi
 }
 
 #
@@ -840,7 +833,7 @@ _zcomp2() {
     local -i _zc_col_offset _zc_col_width _zc_cur _zc_mcol _zc_mrow
     local -i _zc_last_item _zc_last_dcol _zc_num_items _zc_num_dcols _zc_num_rows _zc_num_vcols
     local -i _zc_prev_num_cols _zc_prev_num_rows _zc_saved_row _zc_scrn_cols _zc_scrn_rows
-    local -i _zc_max_item_width _zcj _zck _zcl
+    local -i _zc_max_item_width _zcj _zck _zcl _zcm
 
     (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_cols=-1, _zc_prev_num_rows=-1 ))
 
@@ -931,10 +924,11 @@ _zcomp2() {
             # Display the menu
             for (( _zcj = 0 ; _zcj < _zc_num_rows ; _zcj++ )) do
                 printf '\r\n'
-                for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows ; _zcl < _zck ; _zcl += _zc_num_rows )) do
-                    __zc_item $(( _zcl )) $(( _zcl == _zc_cur )) \
-                              $(( _zcl == _zcj+_zc_col_offset*_zc_num_rows )) \
-                              $(( _zcl >= _zck-_zc_num_rows ))
+                for (( _zcl = _zcj+_zc_col_offset*_zc_num_rows, _zcm = __zc_LeftMargin
+                     ; _zcl < _zck
+                     ; _zcl += _zc_num_rows, _zcm = __zc_PaddingCols )) do
+                    printf '%*s' $(( _zcm )) ''
+                    __zc_item $(( _zcl )) $(( _zcl == _zc_cur ))
                 done
                 printf %s "$__zc_cClearEoL"
             done
@@ -975,15 +969,28 @@ _zcomp2() {
 
             # Redraw done
             (( _zc_first = _zc_redraw_needed = _zc_redraw_now = 0 ))
+
+            # TODO: optionally park cursor in the command line, rather than in
+            # menu, like: printf %s "$__zc_cRestCursor"
+
+            # Put cursor on item
+            __zc_itempos $((_zc_cur))
+
+        elif (( ! _zc_redraw_needed ))
+        then
+
+            #
+            # Just highlight currently selected item:
+            #
+            __zc_itempos $((_zc_cur))
+            __zc_item $((_zc_cur)) 1
+            # move cursor back to start of item
+            __zc_cMoveL _zc_col_width
+
+            # TODO: optionally park cursor in the command line, rather than in
+            # menu, like: printf %s "$__zc_cRestCursor"
+
         fi
-
-        #
-        # Highlight currently selected item:
-        #
-        __zc_item $((_zc_cur)) 1
-
-        # TODO: optionally park cursor in the command line
-        #printf %s "$__zc_cRestCursor"
 
         # If we're in "redraw needed" state, put a timeout on the read, and if
         # the timeout occurs, succeed with _zc_key set to SIGALRM.
@@ -994,9 +1001,13 @@ _zcomp2() {
         __zcinfo -@ 'Got key %q' "$_zc_key"
 
         #
-        # Redraw currently selected item without highlighting
+        # Unhighlight the currently selected item
         #
-        __zc_item $((_zc_cur)) 0
+        if (( ! _zc_redraw_needed ))
+        then
+            __zc_itempos $((_zc_cur))
+            __zc_item $((_zc_cur)) 0
+        fi
 
         # Terminals don't usually produce the ;1~ variant, but just make sure
         _zc_key=${_zc_key/';1~'/'~'}
