@@ -1087,7 +1087,7 @@ _zcomp2() {
         ($__zc_cKeyPD|$'\e[6~')
                             (( _zc_cur++,
                                _zc_cur += _zc_num_rows-1 - _zc_cur % _zc_num_rows,
-                               _zc_cur < _zc_num_items         || ( _zc_cur = _zc_last_item ) )) ;;
+                               _zc_cur < _zc_num_items  || ( _zc_cur = _zc_last_item ) )) ;;
         # home - first item
         ($__zc_cKeyHm|$'\e[1~'|$'\e'[\[O]H)
                             (( _zc_cur = 0 )) ;;
