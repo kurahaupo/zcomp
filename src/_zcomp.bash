@@ -681,11 +681,15 @@ fi
     __zc_getkey() {
         local -a _zc_timeout=()
         (($1)) && _zc_timeout=( "$__zc_read_t01" )
-        local __zgk_chr
-        trap '  _zc_key=SIG#$?-TRAP
-                trap - SIGINT SIGQUIT
-                return 128
-             ' SIGINT SIGQUIT
+        local __zgk_chr __zgk_restore_traps=$( trap -p ) __zgk_signal
+        for __zgk_signal in SIGINT SIGQUIT
+        do
+            trap "  __zgk_chr=\$?
+                    _zc_key=$__zgk_signal
+                    $__zgk_restore_traps
+                    return \$((__zgk_chr|128))
+                 " "$__zgk_signal"
+        done
         IFS= \
         read -rs -d '' "$__zc_read_n1" "${_zc_timeout[@]}" _zc_key || {
             local _zc_exitcode=$?
@@ -701,7 +705,7 @@ fi
                                 ' )"
                 _zc_key=${_zc_signals[_zc_exitcode & 127]:-SIG#$_zc_exitcode}
                 case $_zc_key in
-                    SIGINT|SIGQUIT|SIGALRM|SIGWINCH|SIGCONT)
+                (SIG*)
                     trap _zc_key=SIGINT SIGINT
                     trap _zc_key=SIGQUIT SIGQUIT
                     return 0 ;;
