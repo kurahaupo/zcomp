@@ -601,11 +601,12 @@ fi
     # Add newline-delimited items from a string to the COMPREPLY array
     #
     __zc_genadd() {
-        local _f=$-         # save option flags, particularly -f
+        local _zc_savedash=${-//[!f]} # save globbing state
         set -f              # disable globbing
         local IFS=$'\n'
         COMPREPLY+=( $1 )   # intentionally unquoted; only splits on newlines
-        set +f ${_f:+-$_f}  # restore globbing, if it was previous on
+        # restore globbing, if it was previously on
+        set +f ${_zc_savedash:+"-$_zc_savedash"}
     }
 
     #
