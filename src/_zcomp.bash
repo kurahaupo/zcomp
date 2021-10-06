@@ -614,6 +614,19 @@ fi
                            -@ '\n %q' "${COMPREPLY[@]}"
     }
 
+    __zc_eval() {
+        # Handle the command provided by the -C option.
+        # Take the first arg as the command string to be eval'ed, and leave the
+        # remaining positional args so that they're available to that command if
+        # wanted.
+        # (Completion will provide 3 arguments: the command name, the word to
+        # complete, and the preceding word; these same arguments are also provided
+        # to functions nominated with '-F'.)
+        local __zce=$1
+        shift
+        eval "$__zce"
+    }
+
     #
     # Add newline-delimited items from a string to the COMPREPLY array
     #
@@ -634,34 +647,36 @@ fi
     # This is called from several places in _zcomp, which is called from the
     # wrapper function for each bound completion.
     #
+    # The args passed to the wrapper function are provided here as _zc_genargs;
+    # these must be provided in turn to any -Ffunction or -Ccommand.
+    #
     __zc_gen() {
         local _zc_list
         __zcdebug gen -@0 'ZCGEN START'
         COMPREPLY=()
         if (( ${#_zc_genfunc[@]} ))
         then
-            (( ${#_zc_genfunc[@]} == 1 )) || __zcdebug gen 'GENFUNC received more than one arg, putting the others last'
-            "${_zc_genfunc[@]:0:1}" "${_zc_genargs[@]}" "${_zc_genfunc[@]:1}"
+            "${_zc_genfunc[@]}" "${_zc_genargs[@]}"
             __zcdebug gen -@0 'ZCGEN FUNC ' \
+                          -@${#_zc_genfunc[@]}+${#_zc_genargs[@]} "${_zc_genfunc[@]}" "${_zc_genargs[@]}" \
+                          -@1 ' returned %x, filled COMPREPLY with ' $? \
                           -@  [] "${COMPREPLY[@]}"
         fi
         if (( ${#_zc_gencmd[@]} ))
         then
-            (( ${#_zc_gencmd[@]} == 1 )) || __zcdebug gen 'GENCMD received more than one arg; ignoring all but first'
-            _zc_list=$( unset IFS ; eval "$_zc_gencmd$( printf ' %q' "${_zc_genargs[@]}" )" )
-            __zcdebug gen -@1 'GENCMD (%q)' "$_zc_genfunc" \
-                          -@${#_zc_genargs[@]} [] "${_zc_genargs[@]}" \
-                          -@1 'returned %x, replied ' $? \
+            _zc_list=$( __zc_eval "${_zc_gencmd[@]}" "${_zc_genargs[@]}" )
+            __zcdebug gen -@1 'ZCGEN CMD' \
+                          -@${#_zc_gencmd[@]}+${#_zc_genargs[@]} [] "${_zc_gencmd[@]}" "${_zc_genargs[@]}" \
+                          -@1 ' returned %x, replied ' $? \
                           -@1 [] "$_zc_list"
             __zc_genadd "$_zc_list"
         fi
         if (( ${#_zc_compgen_args[@]} ))
         then
             _zc_list=$( compgen -o nospace "${_zc_compgen_args[@]}" -- "${COMP_WORDS[COMP_CWORD]}" )
-            __zcdebug gen -@0 'GENCOMPGEN' \
-                          -@1 [] "$_zc_genfunc" \
-                          -@${#_zc_genargs[@]} [] "${_zc_genargs[@]}" \
-                          -@1 ' returned %x, replied' $? \
+            __zcdebug gen -@0 'ZCGEN COMPGEN' \
+                          -@3+${#_zc_compgen_args[@]} [] compgen -o nospace "${_zc_compgen_args[@]}" \
+                          -@1 ' returned %x, replied ' $? \
                           -@  [] "$_zc_list"
             __zc_genadd "$_zc_list"
         fi
@@ -679,6 +694,8 @@ fi
         # Set return status so that _zcomp bails out if fewer than two options remain
         (( _zc_num_items > 1 )) && _zc_resize=1
     }
+
+################################################################################
 
     __zc_get_term_size() {
         # Override for debugging
@@ -788,7 +805,7 @@ _zcomp() {
     # (It turns out that « set +${-//[iloprs]} -$oldopts » works even if $- or
     # $oldopts is empty, but it's undocumented so don't rely on it.)
     local _zc_undodash=${-//[iloprs]}
-    set ${_zc_undodash:++$_zc_undodash} ${_zc_savedash:+-$_zc_savedash} --
+    set ${_zc_undodash:+"+$_zc_undodash"} ${_zc_savedash:+"-$_zc_savedash"} --
     return $((_zc_rc))
 }
 
@@ -846,7 +863,13 @@ _zcomp2() {
     local -a _zc_genfunc=( "${@:2:$1}" )       ; shift $(($1+1))
     local -a _zc_gencmd=( "${@:2:$1}" )        ; shift $(($1+1))
     local -a _zc_compgen_args=( "${@:2:$1}" )  ; shift $(($1+1))
-    local -a _zc_genargs=("${@}")
+    local -a _zc_genargs=( "${@:2:$1}" )       ; shift $(($1+1))
+    # The completion system provides 3 arguments:
+    #   1. the first word (the name of the command being used to look up the completion);
+    #   2. the word being completed (empty, if after a space); and
+    #   3. the previous word (if any)
+
+    (( $# == 0 )) || __zclog 'Invalid call to _zcomp with trailing args' || return 1
 
     local _zc_button _zc_key
     local -i _zc_first=1 _zc_redraw_needed _zc_redraw_now _zc_resize=1
@@ -1221,7 +1244,7 @@ complete() {
             shift
             ;;
         (-C)
-            _zc_gencmd=("$2")
+            _zc_gencmd=( "$2" )
             shift
             ;;
         (-[DEI])
@@ -1297,7 +1320,7 @@ complete() {
         _zc__add "${_zc_gencmd[@]}"
         _zc__add "${_zc_compgen_args[@]}"
         unset -f _zc__add
-        _zc_wrapdef+=' "$@" ; }'
+        _zc_wrapdef+=' $# "$@" ; }'     # Args passed in by the completion system, becomes _zc_genargs[@]
 
         __zcdebug wrap -@1 '→define wrapper: %q\n' "$_zc_wrapdef" \
                        -@0 '→' \
