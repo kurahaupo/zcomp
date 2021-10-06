@@ -292,6 +292,23 @@ declare -a _zc_atexit=()
 #
 #   fubar || __zclog ... || exit
 #
+# If the first args is with «-@» or «-@num», then the following arg is a format
+# string, and «num» denotes the number of arguments used by that format string;
+# «num» may be an expression, or may be empty, in which case all remaining args
+# are used.
+# There may be multiple «-@num fmt args...» groups.
+#
+# * If the format string contains a «%» then it is used directly with printf;
+#   this will implicitly repeat the format string as many times as necessary to
+#   consume all the args.
+# * If the format string is «[]» then a special list enumeration format is
+#   used, producing «[arg,arg,arg...]», or «-» if the list of args is empty.
+# * Otherwise the format string is still used directly with printf, but with
+#   «=arg» appended as many times as necessary.
+#
+# If the first arg is not «-@num», or if the «-@num fmt args...» groups do not
+# consume all the args, then any remaining args are printed on separate lines.
+# Output finishes with a newline.
 
 exec 7>/dev/null
 
@@ -300,11 +317,11 @@ __zclog() {
     [[ -e /dev/fd/7 || ! -d /dev/fd ]] && { # avoid complaints about bad filedescriptors
     __zc_ts %F,%T
     printf ' [%u] ' $$
-    local arg argc fmt n_shift pre post sep empty
+    local arg argc fmt pre post sep empty
     while [[ $1 = '-@'* ]] ; do
         arg=${1#-?}
         shift
-        n_shift=argc argc=$# fmt= pre= post= sep=, empty=
+        argc=$# fmt= pre= post= sep=, empty=
 
         case $arg in
         '') ;;
@@ -317,8 +334,8 @@ __zclog() {
         shift
 
         case $fmt in
-        (*\%*)  empty=- ;;
-        ([])    pre=\[ post=\] sep=\, empty=\- fmt=%q ;;
+        (*\%*)  empty=- sep= ;;
+        ([])    pre=\[ post=\] empty=- fmt=%q ;;
         (*)     empty=$fmt fmt+==%q ;;
         esac
 
@@ -343,10 +360,10 @@ __zclog() {
         fi
 
         # discard
-        shift $(( 0<=n_shift && n_shift<=$# ? n_shift : $# ))
+        shift $(( 0<=argc && argc<=$# ? argc : $# ))
     done
     (($#)) && printf '\n\t%s' "$@"
-    printf '\n' "$*"
+    printf '\n'
   } >&7 2>&1
     return $((_zc_r))
 }
@@ -539,9 +556,9 @@ then
     # Assume that if set -x is on when you load zcomp, it's because you want to
     # debug zcomp itself.
     __zc_set_debug log-to-file="$HOME/tmp/_zcomp.$$.log" xtrace-to-log level=7 +ALL
-    __zclog -@ 'Starting zcomp loading, pid=%u tty=%s\n' $$ "${TTY:=$( tty )}"
+    __zclog -@2 'Starting zcomp loading, pid=%u tty=%s\n' $$ "${TTY:=$( tty )}"
     _zc_loaderfinish() {
-        __zclog -@ 'Finished loading zcomp, pid=%u tty=%s ex=%#x' $$ "${TTY:=$( tty )}" $?
+        __zclog -@3 'Finished loading zcomp, pid=%u tty=%s ex=%#x' $$ "${TTY:=$( tty )}" $?
         set -x
     }
     _zc_atexit+=( _zc_loaderfinish )
