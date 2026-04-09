@@ -181,8 +181,6 @@ fi
 # TODO: add support for non-ANSI terminals, maybe, someday.
 #
 
-[[ "$( tput cup 9 6 ; tput clear )" = $'\e[10;7H\e['*'J' ]] || return   # doesn't seem to be an ANSI terminal
-
 case $TERM in
 (ansi*\
 |cons*\
@@ -235,7 +233,35 @@ then
 
     __zc_cReportCursor=$'\e[?6n'
 
-else
+elif
+    command -v tput 2> /dev/null &&
+    # Be careful not to break hard-tab indentation of heredoc
+    tput -S > /dev/null 2>&1 <<-\E
+	bold
+	clear
+	cub 1
+	cud 1
+	cuf 1
+	cup 9 6
+	cuu 1
+	dim
+	el
+	kcub1
+	kcud1
+	kcuf1
+	kcuu1
+	kend 
+	khome
+	knp
+	kpp
+	rc
+	sc
+	setab 0
+	setaf 3
+	sgr0
+	u7
+	E
+then
 
     __zc_cKeyUp=$( tput kcuu1 )     # or '\e[A' or '\eOA'
     __zc_cKeyDn=$( tput kcud1 )     # or '\e[B' or '\eOB'
@@ -269,6 +295,10 @@ else
 
     __zc_cReportCursor=$( tput u7 ) # '\e[?6n'
 
+else
+    # TERM does not seem to indicate a regular ANSI terminal,
+    # AND we also lack a useful tput command.
+    return
 fi
 
 # no tput equivalents
@@ -420,8 +450,9 @@ xtrace=XMODE
   inherit     don't turn off xtrace inside completion
   on          turn on xtrace inside completion (and restore on return)
 
-log-to-fd
-log-to-file
+log-to-fd=FDNUM
+log-to-file=FILENAME
+log-to-stderr
 log-to-xtrace     merge xtrace & __zclog output
 
 xtrace-to-log     merge xtrace & __zclog output inside completion menu
@@ -651,7 +682,7 @@ fi
     # these must be provided in turn to any -Ffunction or -Ccommand.
     #
     __zc_gen() {
-        local _zc_list
+        local _zc_list _zc_first
         __zcdebug gen -@0 'ZCGEN START'
         COMPREPLY=()
         if (( ${#_zc_genfunc[@]} ))
@@ -681,6 +712,7 @@ fi
             __zc_genadd "$_zc_list"
         fi
 
+        _zc_first=${COMPREPLY[0]}
         __zc_sort       # sort COMPREPLY[] and remove duplicates
 
         # count of items & last item, used in lots of places
@@ -691,6 +723,16 @@ fi
         done
         __zcdebug gen -@0 'ZCGEN END ' \
                       -@ [] "${COMPREPLY[*]}"
+        # Focus initially on the first-returned value in COMPREPLY before it
+        # was sorted, on the assumption that it's the best default.
+        if (( _zc_cur<0 ))
+        then
+            for (( _zc_cur=_zc_num_items ; --_zc_cur >= 0  ;))
+            do
+                [[ ${COMPREPLY[_zc_cur]} = "$_zc_first" ]] && break
+            done
+        fi
+
         # Set return status so that _zcomp bails out if fewer than two options remain
         (( _zc_num_items > 1 )) && _zc_resize=1
     }
@@ -878,7 +920,7 @@ _zcomp2() {
     local -i _zc_prev_num_cols _zc_prev_num_rows _zc_saved_row _zc_scrn_cols _zc_scrn_rows
     local -i _zc_max_item_width _zcj _zck _zcl _zcm
 
-    (( _zc_col_offset=0, _zc_cur=0, _zc_prev_num_cols=-1, _zc_prev_num_rows=-1 ))
+    (( _zc_col_offset=0, _zc_cur=-1, _zc_prev_num_cols=-1, _zc_prev_num_rows=-1 ))
 
     { __zc_gen && [[ "${COMP_TYPE:-9}" = 9 ]] ; } || {
         # Avoid showing menu if either
